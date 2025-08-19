@@ -55,6 +55,8 @@ Anaconda installer Web interface
 desktop-file-install --dir=%{buildroot}%{_datadir}/applications %{buildroot}%{_datadir}/applications/extlinks.desktop
 desktop-file-install --dir=%{buildroot}%{_datadir}/applications %{buildroot}%{_datadir}/applications/anaconda-gnome-control-center.desktop
 
+echo %{VERSION} > %{buildroot}%{_datadir}/cockpit/anaconda-webui/VERSION.txt
+
 %check
 exit 0
 # We have some integration tests, but those require running a VM, so that would
@@ -74,6 +76,7 @@ exit 0
 %{_datadir}/cockpit/anaconda-webui/index.css.map
 %{_datadir}/cockpit/anaconda-webui/manifest.json
 %{_datadir}/cockpit/anaconda-webui/po.*.js.gz
+%{_datadir}/cockpit/anaconda-webui/VERSION.txt
 %{_libexecdir}/anaconda/cockpit-coproc-wrapper.sh
 %dir %{_datadir}/anaconda/firefox-theme
 %dir %{_datadir}/anaconda/firefox-theme/default

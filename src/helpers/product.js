@@ -16,8 +16,27 @@
  */
 import cockpit from "cockpit";
 
+const getLastItemFromConsoleOutput = (text) => {
+    return text.split(" ").slice(-1)[0].replace("\n", "");
+};
+
 export const getAnacondaVersion = () => {
     return cockpit
             .spawn(["anaconda", "--version"])
-            .then((content) => content.split(" ").slice(-1)[0].replace("\n", ""));
+            .then(getLastItemFromConsoleOutput);
+};
+
+export const getAnacondaUIVersion = () => {
+    return cockpit
+            .spawn(["cockpit-bridge", "--packages"])
+            .then((content) => {
+                const pathToAnacondaWebUIAssets = content
+                        .split("\n")
+                        .filter(line => line.includes("anaconda-webui"))
+                        .map(getLastItemFromConsoleOutput)[0];
+                return cockpit
+                        .file(`${pathToAnacondaWebUIAssets}/VERSION.txt`)
+                        .read()
+                        .then((versionContent) => versionContent ? versionContent.replace("\n", "") : "N/A");
+            });
 };
