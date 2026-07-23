@@ -96,13 +96,6 @@ export const getActiveInstallationTask = () => {
 };
 
 /**
- * @returns {Promise}           Resolves the current installation status (0-3)
- */
-export const getInstallationStatus = () => {
-    return _getProperty(BossClient, OBJECT_PATH, INTERFACE_NAME, "InstallationStatus");
-};
-
-/**
  * @returns {Promise}           Resolves a list of tasks
  */
 export const installWithTasks = () => {
@@ -114,4 +107,25 @@ export const installWithTasks = () => {
  */
 export const setLocale = ({ locale }) => {
     return callClient("SetLocale", [locale]);
+};
+
+/**
+ * @returns {Promise}           Resolves the installation status enum value
+ */
+export const getInstallationStatus = () => {
+    return _getProperty(BossClient, OBJECT_PATH, INTERFACE_NAME, "InstallationStatus");
+};
+
+/**
+ * @returns {Promise}           Resolves the pending error message, or ""
+ */
+export const getPendingErrorMessage = () => {
+    return _getProperty(BossClient, OBJECT_PATH, INTERFACE_NAME, "PendingErrorMessage");
+};
+
+/**
+ * @returns {Promise}           Resolves the pending error type
+ */
+export const getPendingErrorType = () => {
+    return _getProperty(BossClient, OBJECT_PATH, INTERFACE_NAME, "PendingErrorType");
 };
