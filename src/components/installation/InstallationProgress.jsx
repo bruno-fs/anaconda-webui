@@ -14,7 +14,7 @@ import { ExclamationCircleIcon } from "@patternfly/react-icons/dist/esm/icons/ex
 import { InProgressIcon } from "@patternfly/react-icons/dist/esm/icons/in-progress-icon";
 import { PendingIcon } from "@patternfly/react-icons/dist/esm/icons/pending-icon";
 
-import { BossClient, getActiveInstallationTask, getSteps, installWithTasks } from "../../apis/boss.js";
+import { BossClient, getActiveInstallationTask, getInstallationStatus, getSteps, installWithTasks } from "../../apis/boss.js";
 
 import { exitGui, rebootSystem } from "../../helpers/exit.js";
 
@@ -32,6 +32,8 @@ const _ = cockpit.gettext;
 const N_ = cockpit.noop;
 const SCREEN_ID = "anaconda-screen-progress";
 const DETAIL_TYPE_YESNO = "yesno";
+const PROGRESS_STEPS_DONE = 4;
+const INSTALLATION_STATUS = { NOT_STARTED: 0, RUNNING: 1, SUCCEEDED: 2, FAILED: 3 };
 
 const progressStepsMap = {
     BOOTLOADER_INSTALLATION: 2,
@@ -133,13 +135,18 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
                     if (activeTask) {
                         connectToTask(activeTask, false);
                     } else {
-                        installWithTasks()
-                                .then(
+                        getInstallationStatus().then(status => {
+                            if (status === INSTALLATION_STATUS.SUCCEEDED) {
+                                setStatus("success");
+                                setCurrentProgressStep(PROGRESS_STEPS_DONE);
+                                setSteps([]);
+                            } else {
+                                installWithTasks().then(
                                     tasks => connectToTask(tasks[0], true),
-                                    onCritFail({
-                                        context: _("Installation of the system failed"),
-                                    })
+                                    onCritFail({ context: _("Installation of the system failed") })
                                 );
+                            }
+                        });
                     }
                 }, onCritFail({
                     context: _("Installation of the system failed"),

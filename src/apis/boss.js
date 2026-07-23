@@ -96,6 +96,13 @@ export const getActiveInstallationTask = () => {
 };
 
 /**
+ * @returns {Promise}           Resolves the current installation status (0-3)
+ */
+export const getInstallationStatus = () => {
+    return _getProperty(BossClient, OBJECT_PATH, INTERFACE_NAME, "InstallationStatus");
+};
+
+/**
  * @returns {Promise}           Resolves a list of tasks
  */
 export const installWithTasks = () => {
