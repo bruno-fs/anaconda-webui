@@ -14,7 +14,7 @@ import { ExclamationCircleIcon } from "@patternfly/react-icons/dist/esm/icons/ex
 import { InProgressIcon } from "@patternfly/react-icons/dist/esm/icons/in-progress-icon";
 import { PendingIcon } from "@patternfly/react-icons/dist/esm/icons/pending-icon";
 
-import { BossClient, getActiveInstallationTask, getInstallationStatus, getSteps, installWithTasks } from "../../apis/boss.js";
+import { BossClient, getActiveInstallationTask, getInstallationStatus, getPendingErrorMessage, getPendingErrorType, getSteps, installWithTasks } from "../../apis/boss.js";
 
 import { exitGui, rebootSystem } from "../../helpers/exit.js";
 
@@ -32,8 +32,8 @@ const _ = cockpit.gettext;
 const N_ = cockpit.noop;
 const SCREEN_ID = "anaconda-screen-progress";
 const DETAIL_TYPE_YESNO = "yesno";
-const PROGRESS_STEPS_DONE = 4;
 const INSTALLATION_STATUS = { NOT_STARTED: 0, RUNNING: 1, SUCCEEDED: 2, FAILED: 3 };
+const PROGRESS_STEPS_DONE = 4;
 
 const progressStepsMap = {
     BOOTLOADER_INSTALLATION: 2,
@@ -126,6 +126,21 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
                                 ret => setSteps(ret.v),
                                 onCritFail()
                             );
+                    getPendingErrorMessage().then(pendingMessage => {
+                        if (pendingMessage) {
+                            getPendingErrorType().then(pendingType => {
+                                if (pendingType === DETAIL_TYPE_YESNO) {
+                                    setErrorDialogData({
+                                        categoryProxy,
+                                        message: pendingMessage,
+                                    });
+                                } else {
+                                    setStatus("danger");
+                                    onCritFail()({ message: pendingMessage });
+                                }
+                            });
+                        }
+                    });
                 }
             });
         };
@@ -140,6 +155,10 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
                                 setStatus("success");
                                 setCurrentProgressStep(PROGRESS_STEPS_DONE);
                                 setSteps([]);
+                            } else if (status === INSTALLATION_STATUS.FAILED) {
+                                getPendingErrorMessage().then(error => {
+                                    onCritFail()({ message: error });
+                                });
                             } else {
                                 installWithTasks().then(
                                     tasks => connectToTask(tasks[0], true),
