@@ -10,13 +10,15 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import { PageSection, PageSectionTypes } from "@patternfly/react-core/dist/esm/components/Page/index.js";
 import { Wizard, WizardStep } from "@patternfly/react-core/dist/esm/components/Wizard/index.js";
 
-import { getActiveInstallationTask } from "../apis/boss.js";
+import { getInstallationStatus } from "../apis/boss.js";
 
 import { PageContext, PayloadContext, StorageContext, SystemTypeContext, UserInterfaceContext } from "../contexts/Common.jsx";
 
 import { AnacondaPage } from "./AnacondaPage.jsx";
 import { AnacondaWizardFooter } from "./AnacondaWizardFooter.jsx";
 import { getSteps } from "./steps.js";
+
+const INSTALLATION_STATUS = { NOT_STARTED: 0, RUNNING: 1, SUCCEEDED: 2, FAILED: 3 };
 
 export const AnacondaWizard = ({ automatedInstall, currentStepId, dispatch, isFetching, onCritFail, pauseAtSummary, setCurrentStepId, showStorage }) => {
     /**
@@ -69,9 +71,9 @@ export const AnacondaWizard = ({ automatedInstall, currentStepId, dispatch, isFe
 
     const finalStepId = stepsOrder[stepsOrder.length - 1]?.id;
     useEffect(() => {
-        getActiveInstallationTask()
-                .then(activeTask => {
-                    if (activeTask) {
+        getInstallationStatus()
+                .then(status => {
+                    if (status >= INSTALLATION_STATUS.SUCCEEDED) {
                         cockpit.location.go([finalStepId]);
                     }
                 });
