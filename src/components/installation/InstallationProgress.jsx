@@ -125,6 +125,23 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
                                 ret => setSteps(ret.v),
                                 onCritFail()
                             );
+
+                    categoryProxy.wait(() => {
+                        const pendingMessage = categoryProxy.PendingErrorMessage;
+                        const pendingType = categoryProxy.PendingErrorType;
+                        if (pendingMessage) {
+                            if (pendingType === DETAIL_TYPE_YESNO) {
+                                setErrorDialogData({
+                                    categoryProxy,
+                                    message: pendingMessage,
+                                });
+                            } else {
+                                setStatus("danger");
+                                categoryProxy.RespondToError(false);
+                                onCritFail()({ message: pendingMessage });
+                            }
+                        }
+                    });
                 }
             });
         };
