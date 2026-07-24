@@ -22,4 +22,20 @@ for p in tmp/rpms/*.rpm; do
   MYPARAMS+=("--add" "$p")
 done
 scripts/makeupdates "${MYPARAMS[@]}"
+
+# If ANACONDA_DIR is set, build an anaconda updates overlay and merge it
+# into the webui updates.img. Faster than building full RPMs.
+if [ -n "${ANACONDA_DIR:-}" ]; then
+    echo "Building anaconda updates from $ANACONDA_DIR"
+    anaconda_tag=$(cd "$ANACONDA_DIR" && git describe --tags --abbrev=0 2>/dev/null || echo "HEAD~1")
+    (cd "$ANACONDA_DIR" && ./scripts/makeupdates -t "$anaconda_tag")
+    webui_img="$(realpath updates.img)"
+    tmpdir=$(mktemp -d)
+    (cd "$tmpdir" && gzip -dc "$webui_img" | cpio -idmu 2>/dev/null)
+    (cd "$tmpdir" && gzip -dc "$ANACONDA_DIR/updates.img" | cpio -idmu 2>/dev/null)
+    (cd "$tmpdir" && find . | cpio -c -o 2>/dev/null | gzip -9 > merged.img)
+    mv "$tmpdir/merged.img" "$webui_img"
+    rm -rf "$tmpdir"
+fi
+
 cp updates.img updates-${BUILD_RPMS_IMAGE}.img
