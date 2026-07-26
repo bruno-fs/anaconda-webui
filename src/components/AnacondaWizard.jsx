@@ -10,9 +10,8 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import { PageSection, PageSectionTypes } from "@patternfly/react-core/dist/esm/components/Page/index.js";
 import { Wizard, WizardStep } from "@patternfly/react-core/dist/esm/components/Wizard/index.js";
 
-import { getInstallationStatus } from "../apis/boss.js";
-
 import { PageContext, PayloadContext, StorageContext, SystemTypeContext, UserInterfaceContext } from "../contexts/Common.jsx";
+import { useInstallationStatus } from "../contexts/InstallationStatus.jsx";
 
 import { AnacondaPage } from "./AnacondaPage.jsx";
 import { AnacondaWizardFooter } from "./AnacondaWizardFooter.jsx";
@@ -30,6 +29,8 @@ export const AnacondaWizard = ({ automatedInstall, currentStepId, dispatch, isFe
     const [isFormDisabled, setIsFormDisabled] = useState(false);
     const [isFormValid, setIsFormValid] = useState(false);
     const [stepNotification, setStepNotification] = useState(null);
+    const installationStatus = useInstallationStatus();
+    const initialLoadRef = useRef(true);
 
     const { storageScenarioId } = useContext(StorageContext);
     const isBootIso = useContext(SystemTypeContext).systemType === "BOOT_ISO";
@@ -59,25 +60,35 @@ export const AnacondaWizard = ({ automatedInstall, currentStepId, dispatch, isFe
     const stepsOrder = getSteps(automatedInstall, userInterfaceConfig, { isBootIso, payloadType, storageScenarioId });
     const firstStepId = stepsOrder.find(s => s.isFirstScreen)?.id;
 
-    useEffect(() => {
-        if (path[0] && path[0] !== currentStepId) {
-            // If path is set respect it
-            setCurrentStepId(path[0]);
-        } else if (!currentStepId) {
-            // Otherwise set the first step as the current step
-            setCurrentStepId(firstStepId);
-        }
-    }, [currentStepId, firstStepId, path, setCurrentStepId]);
-
     const finalStepId = stepsOrder[stepsOrder.length - 1]?.id;
     useEffect(() => {
-        getInstallationStatus()
-                .then(status => {
-                    if (status >= INSTALLATION_STATUS.SUCCEEDED) {
-                        cockpit.location.go([finalStepId]);
-                    }
-                });
-    }, [finalStepId]);
+        if (installationStatus === null) {
+            return;
+        }
+
+        // On initial page load, correct the URL based on installation status.
+        // After this, let normal wizard navigation take over.
+        if (initialLoadRef.current) {
+            initialLoadRef.current = false;
+
+            if (installationStatus === INSTALLATION_STATUS.NOT_STARTED && path[0] === finalStepId) {
+                cockpit.location.go([]);
+                setCurrentStepId(firstStepId);
+                return;
+            }
+
+            if (installationStatus >= INSTALLATION_STATUS.SUCCEEDED) {
+                cockpit.location.go([finalStepId]);
+                return;
+            }
+        }
+
+        if (path[0] && path[0] !== currentStepId) {
+            setCurrentStepId(path[0]);
+        } else if (!currentStepId) {
+            setCurrentStepId(firstStepId);
+        }
+    }, [installationStatus, currentStepId, finalStepId, firstStepId, path, setCurrentStepId]);
 
     const createSteps = (stepsOrder, componentProps) => {
         return stepsOrder.map(s => {

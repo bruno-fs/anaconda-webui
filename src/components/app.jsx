@@ -21,9 +21,12 @@ import { MainContextWrapper } from "../contexts/Common.jsx";
 import { EmptyStatePanel } from "cockpit-components-empty-state";
 import { read_os_release as readOsRelease } from "os-release.js";
 
+import { getInstallationStatus } from "../apis/boss.js";
+
 import { AnacondaHeader } from "./AnacondaHeader.jsx";
 import { AnacondaWizard } from "./AnacondaWizard.jsx";
 import { ErrorBoundary } from "./Error.jsx";
+import { InstallationStatusProvider } from "../contexts/InstallationStatus.jsx";
 
 const _ = cockpit.gettext;
 const N_ = cockpit.noop;
@@ -70,6 +73,30 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
 
         new BossClient(address, dispatch).init({ automatedInstall, conf })
                 .then(() => {
+                    // Correct the URL based on installation status before
+                    // rendering any components. This prevents the progress
+                    // page from triggering installWithTasks() on direct
+                    // URL access when installation hasn't started.
+                    return getInstallationStatus().then(status => {
+                        const SUCCEEDED = 2;
+                        const NOT_STARTED = 0;
+                        const progressPage = "anaconda-screen-progress";
+                        const currentPath = cockpit.location.path[0];
+
+                        const needsRedirect =
+                            (status === NOT_STARTED && currentPath === progressPage) ||
+                            (status > NOT_STARTED && currentPath !== progressPage);
+
+                        if (needsRedirect) {
+                            const target = status === NOT_STARTED ? [] : [progressPage];
+                            return new Promise(resolve => {
+                                cockpit.addEventListener("locationchanged", resolve, { once: true });
+                                cockpit.location.replace(target);
+                            });
+                        }
+                    });
+                })
+                .then(() => {
                     setStoreInitialized(true);
                 }, onCritFail({ context: N_("Reading information about the computer failed.") }));
     }, [address, automatedInstall, conf, dispatch, onCritFail]);
@@ -84,7 +111,7 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
     const title = cockpit.format(_("$0 installation"), osRelease.PRETTY_NAME);
 
     return (
-        <>
+        <InstallationStatusProvider>
             <PageGroup
               isFilled={false}
               stickyOnBreakpoint={{ default: "top" }}>
@@ -109,7 +136,7 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
               setCurrentStepId={setCurrentStepId}
               showStorage={showStorage}
             />
-        </>
+        </InstallationStatusProvider>
     );
 };
 
