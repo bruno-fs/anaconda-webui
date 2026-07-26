@@ -1,0 +1,43 @@
+#!/bin/bash
+# Build anaconda RPMs from a local checkout and create an updates.img
+# that includes them alongside the webui code.
+#
+# Usage:
+#   test/build-with-anaconda-rpms [ANACONDA_DIR]
+#
+# ANACONDA_DIR defaults to ~/src/anaconda if not specified.
+#
+# This is useful when testing changes to both anaconda (backend) and
+# anaconda-webui (frontend) together — especially for D-Bus interface
+# changes that break with the update_iso .py overlay mechanism.
+#
+# After running this script, run tests normally:
+#   toolbox run -c anaconda-webui bash -ic \
+#     'TEST_OS=fedora-rawhide-boot test/check-kickstart-automated ...'
+
+set -euo pipefail
+
+ANACONDA_DIR="${1:-$HOME/src/anaconda}"
+
+if [[ ! -d "$ANACONDA_DIR" ]]; then
+    echo "error: anaconda directory not found: $ANACONDA_DIR" >&2
+    exit 1
+fi
+
+RPM_DIR="$ANACONDA_DIR/result/build/01-rpm-build"
+
+echo "Building anaconda RPMs from $ANACONDA_DIR..."
+make -C "$ANACONDA_DIR" -f Makefile.am container-rpms-scratch
+
+CORE_RPM=$(ls "$RPM_DIR"/anaconda-core-*.rpm 2>/dev/null | head -1)
+if [[ -z "$CORE_RPM" ]]; then
+    echo "error: anaconda-core RPM not found in $RPM_DIR" >&2
+    exit 1
+fi
+
+echo "Using RPM: $CORE_RPM"
+echo "Building updates.img..."
+TEST_RPMS="$CORE_RPM" make create-updates.img
+
+echo "Done. Run tests with:"
+echo "  toolbox run -c anaconda-webui bash -ic 'TEST_OS=fedora-rawhide-boot TEST_AUDIT_NO_SELINUX=1 test/check-kickstart-automated ...'"
