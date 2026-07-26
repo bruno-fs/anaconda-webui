@@ -1,0 +1,6 @@
+#!/bin/bash
+# Reset the InstallationStatus on a running test VM by calling InstallWithTasks.
+# Usage: test/reset-installation-status [PORT]
+PORT="${1:-2201}"
+SSH="ssh -i bots/machine/identity -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p $PORT root@127.0.0.2"
+$SSH 'BUS=$(cat /run/anaconda/bus.address); DBUS_SYSTEM_BUS_ADDRESS=$BUS busctl call org.fedoraproject.Anaconda.Boss /org/fedoraproject/Anaconda/Boss org.fedoraproject.Anaconda.Boss InstallWithTasks && echo "Status reset to NOT_STARTED"'
