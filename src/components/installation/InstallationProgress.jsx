@@ -55,6 +55,7 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
 
     useAutoReboot(status, automatedInstall);
 
+
     useEffect(() => {
         const connectToTask = (taskPath, shouldStart) => {
             const taskProxy = new BossClient().client.proxy(
