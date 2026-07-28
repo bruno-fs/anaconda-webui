@@ -5,14 +5,35 @@
 PORT="${1:-2201}"
 SSH="ssh -i bots/machine/identity -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p $PORT root@127.0.0.2"
 
+# Stop anaconda and cockpit BEFORE storage cleanup.
+# blivet holds device handles that prevent DM entry removal.
 echo "Stopping services..."
 $SSH '
 systemctl stop anaconda webui-cockpit-ws
+# gnome-kiosk holds the VT from the previous session and blocks run-in-new-session
 kill -9 $(ps -eo pid,args | grep -E "pyanaconda\.modules\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity" | grep -v grep | awk "{print \$1}") 2>/dev/null
 rm -f /run/anaconda/bus.address /run/anaconda/backend_ready
+' 2>/dev/null
+
+# Clean LVM/DM state from previous installations.
+# Must run after killing anaconda so no process holds device handles.
+echo "Cleaning up storage..."
+$SSH '
+umount -lf /mnt/sysroot /mnt/sysimage 2>/dev/null
+swapoff -a 2>/dev/null
+vgremove -ff -y $(vgs --noheadings -o vg_name 2>/dev/null) 2>/dev/null
+pvremove -ff -y $(pvs --noheadings -o pv_name 2>/dev/null) 2>/dev/null
+dmsetup remove_all 2>/dev/null
+for disk in /dev/vd[a-z]; do
+    # partprobe forces kernel to re-read the partition table after wipe
+    [ -b "$disk" ] && wipefs -af "$disk" 2>/dev/null && partprobe "$disk" 2>/dev/null
+done
+udevadm settle 2>/dev/null
 sleep 1
 ' 2>/dev/null
 
+# anaconda starts cockpit via webui-desktop and creates backend_ready
+# after all modules are initialized (including comps/payload data).
 echo "Starting anaconda..."
 $SSH 'systemctl start anaconda' 2>/dev/null
 
