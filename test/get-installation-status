@@ -1,0 +1,22 @@
+#!/bin/bash
+# Show the current InstallationStatus and PendingError from a running test VM.
+# Usage: test/get-installation-status [PORT]
+PORT="${1:-2201}"
+SSH="ssh -i bots/machine/identity -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p $PORT root@127.0.0.2"
+
+STATUS=$($SSH 'BUS=$(cat /run/anaconda/bus.address); DBUS_SYSTEM_BUS_ADDRESS=$BUS busctl get-property org.fedoraproject.Anaconda.Boss /org/fedoraproject/Anaconda/Boss org.fedoraproject.Anaconda.Boss InstallationStatus' 2>/dev/null)
+ERROR=$($SSH 'BUS=$(cat /run/anaconda/bus.address); DBUS_SYSTEM_BUS_ADDRESS=$BUS busctl get-property org.fedoraproject.Anaconda.Boss /org/fedoraproject/Anaconda/Boss org.fedoraproject.Anaconda.Boss PendingErrorMessage' 2>/dev/null)
+TYPE=$($SSH 'BUS=$(cat /run/anaconda/bus.address); DBUS_SYSTEM_BUS_ADDRESS=$BUS busctl get-property org.fedoraproject.Anaconda.Boss /org/fedoraproject/Anaconda/Boss org.fedoraproject.Anaconda.Boss PendingErrorType' 2>/dev/null)
+
+VALUE=$(echo "$STATUS" | awk '{print $2}')
+case "$VALUE" in
+    0) LABEL="NOT_STARTED" ;;
+    1) LABEL="RUNNING" ;;
+    2) LABEL="SUCCEEDED" ;;
+    3) LABEL="FAILED" ;;
+    *) LABEL="UNKNOWN" ;;
+esac
+
+echo "InstallationStatus: $LABEL ($VALUE)"
+echo "PendingErrorMessage: $ERROR"
+echo "PendingErrorType: $TYPE"
