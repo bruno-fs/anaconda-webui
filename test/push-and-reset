@@ -1,0 +1,23 @@
+#!/bin/bash
+# Push backend + webui changes to a running test VM and restart anaconda.
+# Usage: test/push-and-reset [PORT]
+#   ANACONDA_DIR=~/src/anaconda test/push-and-reset        # backend + webui
+#   test/push-and-reset                                     # webui only
+PORT="${1:-2201}"
+ANACONDA_DIR="${ANACONDA_DIR:-}"
+SSH_OPTS="-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5"
+SSH_KEY="bots/machine/identity"
+
+if [ -n "$ANACONDA_DIR" ]; then
+    echo "Pushing pyanaconda..."
+    (cd "$ANACONDA_DIR" && scripts/push-to-vm "$PORT")
+fi
+
+if [ -d dist ] && [ -f dist/manifest.json ]; then
+    echo "Pushing webui dist..."
+    rsync -az --delete \
+        -e "ssh -i $SSH_KEY $SSH_OPTS -p $PORT" \
+        dist/ "root@127.0.0.2:/usr/share/cockpit/anaconda-webui/"
+fi
+
+test/reset-installation-status "$PORT"
