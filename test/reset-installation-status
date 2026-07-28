@@ -1,6 +1,28 @@
 #!/bin/bash
-# Reset the InstallationStatus on a running test VM by calling InstallWithTasks.
+# Restart anaconda on a running test VM with a clean state.
+# Kills everything and lets anaconda restart from scratch.
 # Usage: test/reset-installation-status [PORT]
 PORT="${1:-2201}"
 SSH="ssh -i bots/machine/identity -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p $PORT root@127.0.0.2"
-$SSH 'BUS=$(cat /run/anaconda/bus.address); DBUS_SYSTEM_BUS_ADDRESS=$BUS busctl call org.fedoraproject.Anaconda.Boss /org/fedoraproject/Anaconda/Boss org.fedoraproject.Anaconda.Boss InstallWithTasks && echo "Status reset to NOT_STARTED"'
+
+echo "Stopping services..."
+$SSH '
+systemctl stop anaconda webui-cockpit-ws
+kill -9 $(ps -eo pid,args | grep -E "pyanaconda\.modules\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity" | grep -v grep | awk "{print \$1}") 2>/dev/null
+rm -f /run/anaconda/bus.address /run/anaconda/backend_ready
+sleep 1
+' 2>/dev/null
+
+echo "Starting anaconda..."
+$SSH 'systemctl start anaconda' 2>/dev/null
+
+echo "Waiting for backend_ready..."
+for i in $(seq 1 90); do
+    if $SSH 'test -f /run/anaconda/backend_ready' 2>/dev/null; then
+        echo "Anaconda ready (${i}s). Refresh the browser."
+        exit 0
+    fi
+    sleep 1
+done
+echo "Timeout."
+exit 1
