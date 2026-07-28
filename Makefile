@@ -217,6 +217,20 @@ create-updates.img: bots
 	-rm *updates.img
 	make $(UPDATES_IMG)
 
+# Fast updates.img for dev: builds JS + installs files directly, no RPM/VM.
+# Set ANACONDA_DIR=~/src/anaconda to also include backend changes.
+quick-updates.img: $(DIST_TEST)
+	rm -rf updates updates.img
+	$(MAKE) install DESTDIR=$$(pwd)/updates
+	if [ -n "$${ANACONDA_DIR}" ]; then \
+		tag=$$(cd "$${ANACONDA_DIR}" && git describe --tags --abbrev=0 2>/dev/null || echo "HEAD~1"); \
+		(cd "$${ANACONDA_DIR}" && ./scripts/makeupdates -t "$$tag"); \
+		(cd updates && gzip -dc "$${ANACONDA_DIR}/updates.img" | cpio -idmu 2>/dev/null); \
+	fi
+	cd updates && find . | cpio -c -o 2>/dev/null | gzip -9 > ../updates.img
+	rm -rf updates
+	@ls -lh updates.img
+
 test/reference: test/common
 	test/common/pixel-tests pull
 

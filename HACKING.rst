@@ -35,6 +35,25 @@ To prepare Anaconda Web UI sources, you need to run this command::
 The easiest way to test changes you make is to set up a test VM.
 You can find intructions for preparing a test VM at ``test/README.rst``.
 
+Quick dev iteration with updates.img
+-------------------------------------
+
+For faster development cycles, use ``quick-updates.img`` to build an updates.img
+directly from sources without RPM packaging or a build VM::
+
+    make quick-updates.img
+
+To also include anaconda backend changes::
+
+    ANACONDA_DIR=~/src/anaconda make quick-updates.img
+
+Then start a test VM as usual (see ``test/README.rst``). This is significantly
+faster than ``make create-updates.img`` (~3s vs ~60s) as it skips the RPM build.
+
+Note: this only includes source files (JS, Python, shell scripts, systemd units).
+It does not pull in RPM dependencies — use ``make create-updates.img`` if you need
+those.
+
 Running eslint
 --------------
 
