@@ -57,8 +57,10 @@ export const AnacondaWizard = ({ automatedInstall, currentStepId, dispatch, isFe
 
     useEffect(() => {
         if (path[0] && path[0] !== currentStepId) {
+            // If path is set respect it
             setCurrentStepId(path[0]);
         } else if (!currentStepId) {
+            // Otherwise set the first step as the current step
             setCurrentStepId(firstStepId);
         }
     }, [currentStepId, firstStepId, path, setCurrentStepId]);
