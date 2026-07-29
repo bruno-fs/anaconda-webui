@@ -10,10 +10,10 @@ TYPE=$($SSH 'BUS=$(cat /run/anaconda/bus.address); DBUS_SYSTEM_BUS_ADDRESS=$BUS 
 
 VALUE=$(echo "$STATUS" | awk '{print $2}')
 case "$VALUE" in
-    0) LABEL="NOT_STARTED" ;;
-    1) LABEL="RUNNING" ;;
-    2) LABEL="SUCCEEDED" ;;
-    3) LABEL="FAILED" ;;
+    1) LABEL="NOT_STARTED" ;;
+    2) LABEL="RUNNING" ;;
+    3) LABEL="SUCCEEDED" ;;
+    4) LABEL="FAILED" ;;
     *) LABEL="UNKNOWN" ;;
 esac
 

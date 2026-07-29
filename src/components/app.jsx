@@ -7,11 +7,9 @@ import cockpit from "cockpit";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Page, PageGroup, PageSection, PageSectionTypes } from "@patternfly/react-core/dist/esm/components/Page/index.js";
 
-import { BossClient } from "../apis/boss.js";
-import { getInstallationStatusAction, getPendingErrorAction } from "../actions/boss-actions.js";
-import { NetworkClient } from "../apis/network.js";
+import { BossClient, getInstallationStatus } from "../apis/boss.js";
 
-import { initialState, reducer, useReducerWithThunk } from "../reducer.js";
+import { initialState, INSTALLATION_STATUS, reducer, useReducerWithThunk } from "../reducer.js";
 
 import { getInstallerConfValue, parseAnacondaConfBool, readConf } from "../helpers/conf.js";
 import { isExiting } from "../helpers/exit.js";
@@ -22,8 +20,6 @@ import { MainContextWrapper } from "../contexts/Common.jsx";
 
 import { EmptyStatePanel } from "cockpit-components-empty-state";
 import { read_os_release as readOsRelease } from "os-release.js";
-
-import { getInstallationStatus } from "../apis/boss.js";
 
 import { AnacondaHeader } from "./AnacondaHeader.jsx";
 import { AnacondaWizard } from "./AnacondaWizard.jsx";
@@ -38,7 +34,7 @@ export const ApplicationLoading = () => (
     </PageSection>
 );
 
-export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease, reportLinkURL, setShowStorage, showStorage }) => {
+export const Application = ({ conf, dispatch, installationStatus, isFetching, onCritFail, osRelease, reportLinkURL, setShowStorage, showStorage }) => {
     const [storeInitialized, setStoreInitialized] = useState(false);
     const [currentStepId, setCurrentStepId] = useState();
     const address = useAddress(onCritFail);
@@ -72,45 +68,28 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
         // Attach a click event listener to detect external link clicks
         document.addEventListener("click", allowExternalNavigation);
 
-        const SUCCEEDED = 2;
-        const FAILED = 3;
-        const progressPage = "anaconda-screen-progress";
+        const PROGRESS_PAGE = "anaconda-screen-progress";
         const bossClient = new BossClient(address, dispatch);
 
-        getInstallationStatus().then(status => {
+        getInstallationStatus().then(async status => {
+            const isComplete = status === INSTALLATION_STATUS.SUCCEEDED || status === INSTALLATION_STATUS.FAILED;
             const currentPath = cockpit.location.path[0];
-            const isFinal = status === SUCCEEDED || status === FAILED;
+            const shouldBeOnProgress = status !== INSTALLATION_STATUS.NOT_STARTED;
 
-            const needsRedirect =
-                (!isFinal && currentPath === progressPage) ||
-                (isFinal && currentPath !== progressPage);
-
-            if (needsRedirect) {
-                const target = isFinal ? [progressPage] : [];
-                return new Promise(resolve => {
+            if (shouldBeOnProgress !== (currentPath === PROGRESS_PAGE)) {
+                const target = shouldBeOnProgress ? [PROGRESS_PAGE] : [];
+                await new Promise(resolve => {
                     cockpit.addEventListener("locationchanged", resolve, { once: true });
                     cockpit.location.replace(target);
-                }).then(() => status);
+                });
             }
-
-            return status;
-        }).then(status => {
-            const isFinal = status === SUCCEEDED || status === FAILED;
-            if (!isFinal) {
-                return bossClient.init({ automatedInstall, conf });
-            }
-
-            dispatch(getInstallationStatusAction());
-            dispatch(getPendingErrorAction());
-            bossClient.startEventMonitor();
-            new NetworkClient(address, dispatch).init();
-        }).then(() => {
+            await bossClient.init({ automatedInstall, conf }, { completed: isComplete });
             setStoreInitialized(true);
         }, onCritFail({ context: N_("Reading information about the computer failed.") }));
     }, [address, automatedInstall, conf, dispatch, onCritFail]);
 
     // Postpone rendering anything until we read the dbus address and the default configuration
-    if (!address || !storeInitialized) {
+    if (!address || !storeInitialized || !installationStatus) {
         debug("Loading initial data...");
         return <ApplicationLoading />;
     }
@@ -245,6 +224,7 @@ export const ApplicationWithErrorBoundary = () => {
                     <Application
                       conf={conf}
                       dispatch={dispatch}
+                      installationStatus={state.boss.installationStatus}
                       isFetching={state.misc.isFetching}
                       onCritFail={onCritFail}
                       osRelease={osRelease}

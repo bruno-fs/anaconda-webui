@@ -42,6 +42,8 @@ export const localizationInitialState = {
     xlayouts: undefined,
 };
 
+export const INSTALLATION_STATUS = { FAILED: 4, NOT_STARTED: 1, RUNNING: 2, SUCCEEDED: 3 };
+
 /* Initial state for the boss store substate */
 export const bossInitialState = {
     installationStatus: null,

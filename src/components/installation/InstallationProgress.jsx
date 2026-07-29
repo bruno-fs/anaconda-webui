@@ -14,7 +14,9 @@ import { ExclamationCircleIcon } from "@patternfly/react-icons/dist/esm/icons/ex
 import { InProgressIcon } from "@patternfly/react-icons/dist/esm/icons/in-progress-icon";
 import { PendingIcon } from "@patternfly/react-icons/dist/esm/icons/pending-icon";
 
-import { BossClient, getActiveInstallationTask, getPendingErrorMessage, getSteps, installWithTasks } from "../../apis/boss.js";
+import { BossClient, getActiveInstallationTask, getSteps, installWithTasks } from "../../apis/boss.js";
+
+import { INSTALLATION_STATUS } from "../../reducer.js";
 
 import { exitGui, rebootSystem } from "../../helpers/exit.js";
 
@@ -32,7 +34,6 @@ const _ = cockpit.gettext;
 const N_ = cockpit.noop;
 const SCREEN_ID = "anaconda-screen-progress";
 const DETAIL_TYPE_YESNO = "yesno";
-const INSTALLATION_STATUS = { NOT_STARTED: 0, RUNNING: 1, SUCCEEDED: 2, FAILED: 3 };
 const PROGRESS_STEPS_DONE = 4;
 
 const progressStepsMap = {
@@ -52,10 +53,9 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
     const refStatusMessage = useRef("");
     const isBootIso = useContext(SystemTypeContext).systemType === "BOOT_ISO";
     const osRelease = useContext(OsReleaseContext);
-    const { installationStatus } = useContext(BossContext);
+    const { installationStatus, pendingError } = useContext(BossContext);
 
     useAutoReboot(status, automatedInstall);
-
 
     useEffect(() => {
         const connectToTask = (taskPath, shouldStart) => {
@@ -128,37 +128,27 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
                                 ret => setSteps(ret.v),
                                 onCritFail()
                             );
-                    getPendingErrorMessage().then(pendingMessage => {
-                        if (pendingMessage) {
-                            getPendingErrorType().then(pendingType => {
-                                if (pendingType === DETAIL_TYPE_YESNO) {
-                                    setErrorDialogData({
-                                        categoryProxy,
-                                        message: pendingMessage,
-                                    });
-                                } else {
-                                    setStatus("danger");
-                                    onCritFail()({ message: pendingMessage });
-                                }
+                    if (pendingError.message) {
+                        if (pendingError.type === DETAIL_TYPE_YESNO) {
+                            setErrorDialogData({
+                                categoryProxy,
+                                message: pendingError.message,
                             });
+                        } else {
+                            setStatus("danger");
+                            onCritFail()({ message: pendingError.message });
                         }
-                    });
+                    }
                 }
             });
         };
-
-        if (installationStatus === null) {
-            return;
-        }
 
         if (installationStatus === INSTALLATION_STATUS.SUCCEEDED) {
             setStatus("success");
             setCurrentProgressStep(PROGRESS_STEPS_DONE);
             setSteps([]);
         } else if (installationStatus === INSTALLATION_STATUS.FAILED) {
-            getPendingErrorMessage().then(error => {
-                onCritFail()({ message: error });
-            });
+            onCritFail()({ message: pendingError.message });
         } else if (installationStatus === INSTALLATION_STATUS.RUNNING) {
             getActiveInstallationTask().then(activeTask => {
                 if (activeTask) {
@@ -171,7 +161,7 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
                 onCritFail({ context: _("Installation of the system failed") })
             );
         }
-    }, [installationStatus, onCritFail]);
+    }, [installationStatus, onCritFail, pendingError.message, pendingError.type]);
 
     const submitErrorDecision = (shouldContinue) => {
         if (!errorDialogData) {
