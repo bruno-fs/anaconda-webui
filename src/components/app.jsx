@@ -72,19 +72,21 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
         // Attach a click event listener to detect external link clicks
         document.addEventListener("click", allowExternalNavigation);
 
-        const NOT_STARTED = 0;
+        const SUCCEEDED = 2;
+        const FAILED = 3;
         const progressPage = "anaconda-screen-progress";
         const bossClient = new BossClient(address, dispatch);
 
         getInstallationStatus().then(status => {
             const currentPath = cockpit.location.path[0];
+            const isFinal = status === SUCCEEDED || status === FAILED;
 
             const needsRedirect =
-                (status === NOT_STARTED && currentPath === progressPage) ||
-                (status !== NOT_STARTED && currentPath !== progressPage);
+                (!isFinal && currentPath === progressPage) ||
+                (isFinal && currentPath !== progressPage);
 
             if (needsRedirect) {
-                const target = status === NOT_STARTED ? [] : [progressPage];
+                const target = isFinal ? [progressPage] : [];
                 return new Promise(resolve => {
                     cockpit.addEventListener("locationchanged", resolve, { once: true });
                     cockpit.location.replace(target);
@@ -93,7 +95,8 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
 
             return status;
         }).then(status => {
-            if (status === NOT_STARTED) {
+            const isFinal = status === SUCCEEDED || status === FAILED;
+            if (!isFinal) {
                 return bossClient.init({ automatedInstall, conf });
             }
 

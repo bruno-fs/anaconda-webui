@@ -52,7 +52,7 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
     const refStatusMessage = useRef("");
     const isBootIso = useContext(SystemTypeContext).systemType === "BOOT_ISO";
     const osRelease = useContext(OsReleaseContext);
-    const { installationStatus } = useContext(BossContext) || {};
+    const { installationStatus } = useContext(BossContext);
 
     useAutoReboot(status, automatedInstall);
 
