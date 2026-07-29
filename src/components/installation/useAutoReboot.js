@@ -27,7 +27,12 @@ export const useAutoReboot = (status, automatedInstall) => {
         }
 
         const autoReboot = async () => {
-            const rebootData = await getRebootData();
+            let rebootData;
+            try {
+                rebootData = await getRebootData();
+            } catch {
+                return;
+            }
             const action = rebootData?.action?.v;
             if (action === KS_REBOOT || action === KS_SHUTDOWN) {
                 debug("Auto-exit: kickstart reboot/shutdown action detected, exiting GUI");

@@ -71,34 +71,37 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
         // Attach a click event listener to detect external link clicks
         document.addEventListener("click", allowExternalNavigation);
 
-        new BossClient(address, dispatch).init({ automatedInstall, conf })
-                .then(() => {
-                    // Correct the URL based on installation status before
-                    // rendering any components. This prevents the progress
-                    // page from triggering installWithTasks() on direct
-                    // URL access when installation hasn't started.
-                    return getInstallationStatus().then(status => {
-                        const SUCCEEDED = 2;
-                        const NOT_STARTED = 0;
-                        const progressPage = "anaconda-screen-progress";
-                        const currentPath = cockpit.location.path[0];
+        const NOT_STARTED = 0;
+        const progressPage = "anaconda-screen-progress";
+        const bossClient = new BossClient(address, dispatch);
 
-                        const needsRedirect =
-                            (status === NOT_STARTED && currentPath === progressPage) ||
-                            (status > NOT_STARTED && currentPath !== progressPage);
+        getInstallationStatus().then(status => {
+            console.log("InstallationStatus:", status);
+            const currentPath = cockpit.location.path[0];
 
-                        if (needsRedirect) {
-                            const target = status === NOT_STARTED ? [] : [progressPage];
-                            return new Promise(resolve => {
-                                cockpit.addEventListener("locationchanged", resolve, { once: true });
-                                cockpit.location.replace(target);
-                            });
-                        }
-                    });
-                })
-                .then(() => {
-                    setStoreInitialized(true);
-                }, onCritFail({ context: N_("Reading information about the computer failed.") }));
+            const needsRedirect =
+                (status === NOT_STARTED && currentPath === progressPage) ||
+                (status !== NOT_STARTED && currentPath !== progressPage);
+
+            if (needsRedirect) {
+                const target = status === NOT_STARTED ? [] : [progressPage];
+                return new Promise(resolve => {
+                    cockpit.addEventListener("locationchanged", resolve, { once: true });
+                    cockpit.location.replace(target);
+                }).then(() => status);
+            }
+
+            return status;
+        }).then(status => {
+            if (status === NOT_STARTED) {
+                return bossClient.init({ automatedInstall, conf });
+            }
+        }).then(() => {
+            setStoreInitialized(true);
+        }, ex => {
+            console.error("Init failed:", ex);
+            onCritFail({ context: N_("Reading information about the computer failed.") })(ex);
+        });
     }, [address, automatedInstall, conf, dispatch, onCritFail]);
 
     // Postpone rendering anything until we read the dbus address and the default configuration

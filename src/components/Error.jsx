@@ -624,7 +624,7 @@ const BZReportContent = ({
     const networkHelperMessageLive = _("Network not available. Configure the network in the top bar menu to report the issue.");
     const networkHelperMessageBootIso = _("Network not available. Configure the network to report the issue.");
 
-    if (!isConnected) {
+    if (isConnected === false) {
         return (
             <>
                 <ModalBody>
