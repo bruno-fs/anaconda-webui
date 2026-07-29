@@ -8,6 +8,8 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Page, PageGroup, PageSection, PageSectionTypes } from "@patternfly/react-core/dist/esm/components/Page/index.js";
 
 import { BossClient } from "../apis/boss.js";
+import { getInstallationStatusAction, getPendingErrorAction } from "../actions/boss-actions.js";
+import { NetworkClient } from "../apis/network.js";
 
 import { initialState, reducer, useReducerWithThunk } from "../reducer.js";
 
@@ -26,7 +28,6 @@ import { getInstallationStatus } from "../apis/boss.js";
 import { AnacondaHeader } from "./AnacondaHeader.jsx";
 import { AnacondaWizard } from "./AnacondaWizard.jsx";
 import { ErrorBoundary } from "./Error.jsx";
-import { InstallationStatusProvider } from "../contexts/InstallationStatus.jsx";
 
 const _ = cockpit.gettext;
 const N_ = cockpit.noop;
@@ -76,7 +77,6 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
         const bossClient = new BossClient(address, dispatch);
 
         getInstallationStatus().then(status => {
-            console.log("InstallationStatus:", status);
             const currentPath = cockpit.location.path[0];
 
             const needsRedirect =
@@ -96,12 +96,14 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
             if (status === NOT_STARTED) {
                 return bossClient.init({ automatedInstall, conf });
             }
+
+            dispatch(getInstallationStatusAction());
+            dispatch(getPendingErrorAction());
+            bossClient.startEventMonitor();
+            new NetworkClient(address, dispatch).init();
         }).then(() => {
             setStoreInitialized(true);
-        }, ex => {
-            console.error("Init failed:", ex);
-            onCritFail({ context: N_("Reading information about the computer failed.") })(ex);
-        });
+        }, onCritFail({ context: N_("Reading information about the computer failed.") }));
     }, [address, automatedInstall, conf, dispatch, onCritFail]);
 
     // Postpone rendering anything until we read the dbus address and the default configuration
@@ -114,7 +116,7 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
     const title = cockpit.format(_("$0 installation"), osRelease.PRETTY_NAME);
 
     return (
-        <InstallationStatusProvider>
+        <>
             <PageGroup
               isFilled={false}
               stickyOnBreakpoint={{ default: "top" }}>
@@ -139,7 +141,7 @@ export const Application = ({ conf, dispatch, isFetching, onCritFail, osRelease,
               setCurrentStepId={setCurrentStepId}
               showStorage={showStorage}
             />
-        </InstallationStatusProvider>
+        </>
     );
 };
 

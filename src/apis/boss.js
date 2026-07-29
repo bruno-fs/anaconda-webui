@@ -5,6 +5,7 @@
 
 import cockpit from "cockpit";
 
+import { getInstallationStatusAction, getPendingErrorAction } from "../actions/boss-actions.js";
 import { error } from "../helpers/log.js";
 import { _callClient, _getProperty } from "./helpers.js";
 
@@ -44,25 +45,34 @@ export class BossClient {
     init (args = {}) {
         this.client.addEventListener("close", () => error("Boss client closed"));
 
+        this.dispatch(getInstallationStatusAction());
+        this.dispatch(getPendingErrorAction());
+        this.startEventMonitor();
+
         return Promise.all(
             moduleClients.map(Client => new Client(this.address, this.dispatch).init(args))
-        ).then(() => {
-            this.startEventMonitor();
-        });
+        );
     }
 
     startEventMonitor () {
         this._subscription = this.client.subscribe(
             { },
             (path, iface, signal, args) => {
-                if (signal === "PropertiesChanged" &&
-                    args[0] === INTERFACE_NAME &&
-                    Object.hasOwn(args[1], "ActiveInstallationTask") &&
+                if (signal !== "PropertiesChanged" || args[0] !== INTERFACE_NAME) {
+                    return;
+                }
+
+                if (Object.hasOwn(args[1], "InstallationStatus")) {
+                    this.dispatch(getInstallationStatusAction());
+                }
+                if (Object.hasOwn(args[1], "PendingErrorMessage")) {
+                    this.dispatch(getPendingErrorAction());
+                }
+                if (Object.hasOwn(args[1], "ActiveInstallationTask") &&
                     args[1].ActiveInstallationTask.v) {
                     for (const Client of moduleClients) {
                         Client.instance?.stopEventMonitor();
                     }
-                    this.stopEventMonitor();
                 }
             }
         );

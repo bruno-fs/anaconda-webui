@@ -14,11 +14,11 @@ import { ExclamationCircleIcon } from "@patternfly/react-icons/dist/esm/icons/ex
 import { InProgressIcon } from "@patternfly/react-icons/dist/esm/icons/in-progress-icon";
 import { PendingIcon } from "@patternfly/react-icons/dist/esm/icons/pending-icon";
 
-import { BossClient, getActiveInstallationTask, getInstallationStatus, getPendingErrorMessage, getPendingErrorType, getSteps, installWithTasks } from "../../apis/boss.js";
+import { BossClient, getActiveInstallationTask, getPendingErrorMessage, getSteps, installWithTasks } from "../../apis/boss.js";
 
 import { exitGui, rebootSystem } from "../../helpers/exit.js";
 
-import { OsReleaseContext, SystemTypeContext } from "../../contexts/Common.jsx";
+import { BossContext, OsReleaseContext, SystemTypeContext } from "../../contexts/Common.jsx";
 
 import { EmptyStatePanel } from "cockpit-components-empty-state.jsx";
 
@@ -52,6 +52,7 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
     const refStatusMessage = useRef("");
     const isBootIso = useContext(SystemTypeContext).systemType === "BOOT_ISO";
     const osRelease = useContext(OsReleaseContext);
+    const { installationStatus } = useContext(BossContext) || {};
 
     useAutoReboot(status, automatedInstall);
 
@@ -146,29 +147,31 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
             });
         };
 
-        getInstallationStatus().then(status => {
-            if (status === INSTALLATION_STATUS.SUCCEEDED) {
-                setStatus("success");
-                setCurrentProgressStep(PROGRESS_STEPS_DONE);
-                setSteps([]);
-            } else if (status === INSTALLATION_STATUS.FAILED) {
-                getPendingErrorMessage().then(error => {
-                    onCritFail()({ message: error });
-                });
-            } else if (status === INSTALLATION_STATUS.RUNNING) {
-                getActiveInstallationTask().then(activeTask => {
-                    if (activeTask) {
-                        connectToTask(activeTask, false);
-                    }
-                }, onCritFail({ context: _("Installation of the system failed") }));
-            } else {
-                installWithTasks().then(
-                    tasks => connectToTask(tasks[0], true),
-                    onCritFail({ context: _("Installation of the system failed") })
-                );
-            }
-        }, onCritFail({ context: _("Installation of the system failed") }));
-    }, [onCritFail]);
+        if (installationStatus === null) {
+            return;
+        }
+
+        if (installationStatus === INSTALLATION_STATUS.SUCCEEDED) {
+            setStatus("success");
+            setCurrentProgressStep(PROGRESS_STEPS_DONE);
+            setSteps([]);
+        } else if (installationStatus === INSTALLATION_STATUS.FAILED) {
+            getPendingErrorMessage().then(error => {
+                onCritFail()({ message: error });
+            });
+        } else if (installationStatus === INSTALLATION_STATUS.RUNNING) {
+            getActiveInstallationTask().then(activeTask => {
+                if (activeTask) {
+                    connectToTask(activeTask, false);
+                }
+            }, onCritFail({ context: _("Installation of the system failed") }));
+        } else {
+            installWithTasks().then(
+                tasks => connectToTask(tasks[0], true),
+                onCritFail({ context: _("Installation of the system failed") })
+            );
+        }
+    }, [installationStatus, onCritFail]);
 
     const submitErrorDecision = (shouldContinue) => {
         if (!errorDialogData) {
