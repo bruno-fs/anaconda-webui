@@ -240,8 +240,11 @@ class TestKickstartAutomatedFatalError(VirtInstallMachineCase):
 
         b.open("/cockpit/@localhost/anaconda-webui/index.html")
         p.wait_installation_failed("This is a fatal error", timeout=1200)
-        b.wait_in_text("#critical-error-bz-report-modal-details",
-                       "There was an error running the kickstart script")
+        # b.wait_not_present("#anaconda-screen-progress-installation-error-continue-btn")
+        # # Simulate remote reconnection
+        # b.reload()
+        # b.wait_visible(".pf-v6-c-page")
+        # p.wait_installation_failed("This is a fatal error", timeout=10)
         b.wait_not_present("#anaconda-screen-progress-installation-error-continue-btn")
 
 

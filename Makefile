@@ -217,11 +217,20 @@ create-updates.img: bots
 	-rm *updates.img
 	make $(UPDATES_IMG)
 
+# Download dependency RPMs (cockpit, anaconda-core, udisks) without building anaconda-webui.
+fetch-rpms: bots
+	test/vm.install --download-only -v --image=$$(echo $(TEST_OS) | sed 's/-boot//')
+
+tmp/rpms:
+	$(MAKE) fetch-rpms
+
 # Fast updates.img for dev: builds JS + installs files directly, no RPM/VM.
 # Set ANACONDA_DIR=~/src/anaconda to also include backend changes.
-quick-updates.img: $(DIST_TEST)
+# Fetches dependency RPMs on first run, then reuses them.
+quick-updates.img: $(DIST_TEST) tmp/rpms
 	rm -rf updates updates.img
 	$(MAKE) install DESTDIR=$$(pwd)/updates
+	cd updates && for rpm in ../tmp/rpms/*.rpm; do rpm2cpio "$$rpm" | cpio -idmu 2>/dev/null; done
 	if [ -n "$${ANACONDA_DIR}" ]; then \
 		tag=$$(cd "$${ANACONDA_DIR}" && git describe --tags --abbrev=0 2>/dev/null || echo "HEAD~1"); \
 		(cd "$${ANACONDA_DIR}" && ./scripts/makeupdates -t "$$tag"); \
@@ -229,7 +238,8 @@ quick-updates.img: $(DIST_TEST)
 	fi
 	cd updates && find . | cpio -c -o 2>/dev/null | gzip -9 > ../updates.img
 	rm -rf updates
-	@ls -lh updates.img
+	cp updates.img updates-$$(echo $(TEST_OS) | sed 's/-boot//').img
+	@ls -lh updates.img updates-$$(echo $(TEST_OS) | sed 's/-boot//').img
 
 test/reference: test/common
 	test/common/pixel-tests pull
