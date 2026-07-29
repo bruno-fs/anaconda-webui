@@ -7,7 +7,7 @@ import cockpit from "cockpit";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Page, PageGroup, PageSection, PageSectionTypes } from "@patternfly/react-core/dist/esm/components/Page/index.js";
 
-import { BossClient, getInstallationStatus } from "../apis/boss.js";
+import { BossClient } from "../apis/boss.js";
 
 import { initialState, INSTALLATION_STATUS, reducer, useReducerWithThunk } from "../reducer.js";
 
@@ -68,25 +68,23 @@ export const Application = ({ conf, dispatch, installationStatus, isFetching, on
         // Attach a click event listener to detect external link clicks
         document.addEventListener("click", allowExternalNavigation);
 
-        const PROGRESS_PAGE = "anaconda-screen-progress";
-        const bossClient = new BossClient(address, dispatch);
-
-        getInstallationStatus().then(async status => {
-            const isComplete = status === INSTALLATION_STATUS.SUCCEEDED || status === INSTALLATION_STATUS.FAILED;
-            const currentPath = cockpit.location.path[0];
-            const shouldBeOnProgress = status !== INSTALLATION_STATUS.NOT_STARTED;
-
-            if (shouldBeOnProgress !== (currentPath === PROGRESS_PAGE)) {
-                const target = shouldBeOnProgress ? [PROGRESS_PAGE] : [];
-                await new Promise(resolve => {
-                    cockpit.addEventListener("locationchanged", resolve, { once: true });
-                    cockpit.location.replace(target);
-                });
-            }
-            await bossClient.init({ automatedInstall, conf }, { completed: isComplete });
-            setStoreInitialized(true);
-        }, onCritFail({ context: N_("Reading information about the computer failed.") }));
+        new BossClient(address, dispatch).init({ automatedInstall, conf })
+                .then(() => {
+                    setStoreInitialized(true);
+                }, onCritFail({ context: N_("Reading information about the computer failed.") }));
     }, [address, automatedInstall, conf, dispatch, onCritFail]);
+
+    // Redirect to the correct page based on installation status
+    useEffect(() => {
+        const PROGRESS_PAGE = "anaconda-screen-progress";
+        const currentPath = cockpit.location.path[0];
+        const shouldBeOnProgress = installationStatus !== INSTALLATION_STATUS.NOT_STARTED;
+
+        if (shouldBeOnProgress !== (currentPath === PROGRESS_PAGE)) {
+            const target = shouldBeOnProgress ? [PROGRESS_PAGE] : [];
+            cockpit.location.replace(target);
+        }
+    }, [installationStatus]);
 
     // Postpone rendering anything until we read the dbus address and the default configuration
     if (!address || !storeInitialized || !installationStatus) {

@@ -10,6 +10,13 @@ import { StorageClient } from "./storage.js";
 import { TimezoneClient } from "./timezone.js";
 import { UsersClient } from "./users.js";
 
+// Clients needed on the progress page after installation completes (SUCCEEDED/FAILED).
+// Network is needed for bug reporting; Runtime for reboot data.
+export const minimalModuleClients = [
+    NetworkClient,
+    RuntimeClient,
+];
+
 export const moduleClients = [
     LocalizationClient,
     NetworkClient,

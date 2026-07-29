@@ -6,13 +6,12 @@
 import cockpit from "cockpit";
 
 import { getInstallationStatusAction, getPendingErrorAction } from "../actions/boss-actions.js";
+import { INSTALLATION_STATUS } from "../reducer.js";
 
 import { error } from "../helpers/log.js";
 import { _callClient, _getProperty } from "./helpers.js";
 
-import { moduleClients } from "./index.js";
-import { NetworkClient } from "./network.js";
-import { RuntimeClient } from "./runtime.js";
+import { minimalModuleClients, moduleClients } from "./index.js";
 
 const OBJECT_PATH = "/org/fedoraproject/Anaconda/Boss";
 const INTERFACE_NAME = "org.fedoraproject.Anaconda.Boss";
@@ -45,17 +44,20 @@ export class BossClient {
         this.dispatch = dispatch;
     }
 
-    async init (args = {}, { completed = false } = {}) {
+    async init (args = {}) {
         this.client.addEventListener("close", () => error("Boss client closed"));
 
-        await this.dispatch(getInstallationStatusAction());
-        await this.dispatch(getPendingErrorAction());
+        const status = await getInstallationStatus();
+        this.dispatch(getInstallationStatusAction());
+        this.dispatch(getPendingErrorAction());
         this.startEventMonitor();
 
         // On reconnection to a finished installation (SUCCEEDED/FAILED), skip
         // heavy module init (Storage, Payloads, etc.) — their stale state can
         // cause crashes (e.g. UnknownCompsEnvironmentError from outdated comps data).
-        const clients = completed ? [NetworkClient, RuntimeClient] : moduleClients;
+        const completed = status === INSTALLATION_STATUS.SUCCEEDED ||
+                          status === INSTALLATION_STATUS.FAILED;
+        const clients = completed ? minimalModuleClients : moduleClients;
 
         await Promise.all(
             clients.map(Client => new Client(this.address, this.dispatch).init(args))
