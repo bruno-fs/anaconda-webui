@@ -146,31 +146,28 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
             });
         };
 
-        getActiveInstallationTask()
-                .then(activeTask => {
+        getInstallationStatus().then(status => {
+            if (status === INSTALLATION_STATUS.SUCCEEDED) {
+                setStatus("success");
+                setCurrentProgressStep(PROGRESS_STEPS_DONE);
+                setSteps([]);
+            } else if (status === INSTALLATION_STATUS.FAILED) {
+                getPendingErrorMessage().then(error => {
+                    onCritFail()({ message: error });
+                });
+            } else if (status === INSTALLATION_STATUS.RUNNING) {
+                getActiveInstallationTask().then(activeTask => {
                     if (activeTask) {
                         connectToTask(activeTask, false);
-                    } else {
-                        getInstallationStatus().then(status => {
-                            if (status === INSTALLATION_STATUS.SUCCEEDED) {
-                                setStatus("success");
-                                setCurrentProgressStep(PROGRESS_STEPS_DONE);
-                                setSteps([]);
-                            } else if (status === INSTALLATION_STATUS.FAILED) {
-                                getPendingErrorMessage().then(error => {
-                                    onCritFail()({ message: error });
-                                });
-                            } else {
-                                installWithTasks().then(
-                                    tasks => connectToTask(tasks[0], true),
-                                    onCritFail({ context: _("Installation of the system failed") })
-                                );
-                            }
-                        });
                     }
-                }, onCritFail({
-                    context: _("Installation of the system failed"),
-                }));
+                }, onCritFail({ context: _("Installation of the system failed") }));
+            } else {
+                installWithTasks().then(
+                    tasks => connectToTask(tasks[0], true),
+                    onCritFail({ context: _("Installation of the system failed") })
+                );
+            }
+        }, onCritFail({ context: _("Installation of the system failed") }));
     }, [onCritFail]);
 
     const submitErrorDecision = (shouldContinue) => {
