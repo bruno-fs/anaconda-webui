@@ -8,6 +8,6 @@ rootpw testcase
 timezone --utc Europe/Prague
 
 %packages
-@^workstation-product-environment
+@^custom-environment
 domain-client-nonexisting
 %end
