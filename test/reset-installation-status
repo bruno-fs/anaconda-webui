@@ -3,7 +3,7 @@
 # Kills everything and lets anaconda restart from scratch.
 # Usage: test/reset-installation-status [PORT]
 PORT="${1:-2201}"
-SSH="ssh -i bots/machine/identity -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p $PORT root@127.0.0.2"
+SSH="ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p $PORT root@127.0.0.2"
 
 # Stop anaconda and cockpit BEFORE storage cleanup.
 # blivet holds device handles that prevent DM entry removal.
