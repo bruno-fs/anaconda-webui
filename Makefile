@@ -230,6 +230,7 @@ tmp/rpms:
 quick-updates.img: $(DIST_TEST) tmp/rpms
 	rm -rf updates updates.img
 	$(MAKE) install DESTDIR=$$(pwd)/updates
+	find updates -name '*.map' -delete
 	cd updates && for rpm in ../tmp/rpms/*.rpm; do rpm2cpio "$$rpm" | cpio -idmu 2>/dev/null; done
 	if [ -n "$${ANACONDA_DIR}" ]; then \
 		tag=$$(cd "$${ANACONDA_DIR}" && git describe --tags --abbrev=0 2>/dev/null || echo "HEAD~1"); \
