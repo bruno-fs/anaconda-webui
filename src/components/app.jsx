@@ -76,13 +76,17 @@ export const Application = ({ conf, dispatch, installationStatus, isFetching, on
 
     // Redirect to the correct page based on installation status
     useEffect(() => {
+        if (installationStatus === null) {
+            return;
+        }
         const PROGRESS_PAGE = "anaconda-screen-progress";
         const currentPath = cockpit.location.path[0];
         const shouldBeOnProgress = installationStatus !== INSTALLATION_STATUS.NOT_STARTED;
 
-        if (shouldBeOnProgress !== (currentPath === PROGRESS_PAGE)) {
-            const target = shouldBeOnProgress ? [PROGRESS_PAGE] : [];
-            cockpit.location.replace(target);
+        if (shouldBeOnProgress && currentPath !== PROGRESS_PAGE) {
+            cockpit.location.replace([PROGRESS_PAGE]);
+        } else if (!shouldBeOnProgress && currentPath === PROGRESS_PAGE) {
+            cockpit.location.replace([]);
         }
     }, [installationStatus]);
 

@@ -41,6 +41,7 @@ class VirtInstallMachine(VirtMachine):
         self.kickstart_file_name = kwargs.pop("kickstart_file_name", None)
         self.pause_at_summary = kwargs.pop("pause_at_summary", False)
         self.payload_type = kwargs.pop("payload_type", "liveimg".lower())
+        kwargs.setdefault("memory_mb", 4096)
         super().__init__(image, **kwargs)
 
     def _attach_libvirt_domain(self, timeout_sec=120):
@@ -179,7 +180,7 @@ class VirtInstallMachine(VirtMachine):
         # FIXME: Disable SELinux on DNF installation as it needs relabelling other wise ssh logins are prevented
         selinux = "inst.noselinux " if self.payload_type == "dnf" else ""
 
-        boot_arg = "--boot uefi " if self.is_efi else ""
+        boot_arg = "--boot uefi,firmware.feature0.name=secure-boot,firmware.feature0.enabled=no " if self.is_efi else ""
         extra_boot_args = os.environ.get("TEST_EXTRA_BOOT_ARGS", "")
         extra_boot_args_option = f"--extra-args {shlex.quote(extra_boot_args)} " if extra_boot_args else ""
         serial_opt = (
