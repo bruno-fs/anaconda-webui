@@ -399,7 +399,7 @@ class StorageDBus():
             {task} \
             org.fedoraproject.Anaconda.Task Start')
 
-        wait(lambda: self.dbus_get_task_status(task) == "false", tries=20, delay=6)
+        wait(lambda: self.dbus_get_task_status(task) == "false", tries=120, delay=1)
 
     def dbus_get_task_status(self, task):
         ret = self.machine.execute(f'busctl --address="{self._bus_address}" \
