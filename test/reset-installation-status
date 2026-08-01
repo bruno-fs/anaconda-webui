@@ -12,7 +12,7 @@ $SSH '
 systemctl stop anaconda webui-cockpit-ws
 # gnome-kiosk holds the VT from the previous session and blocks run-in-new-session
 kill -9 $(ps -eo pid,args | grep -E "pyanaconda\.modules\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity" | grep -v grep | awk "{print \$1}") 2>/dev/null
-rm -f /run/anaconda/bus.address /run/anaconda/backend_ready
+rm -f /run/anaconda/bus.address /run/anaconda/backend_ready /run/anaconda/installation-error-msg /run/anaconda/remote-debugger.conf
 ' 2>/dev/null
 
 # Clean LVM/DM state from previous installations.

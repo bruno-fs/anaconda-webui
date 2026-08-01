@@ -21,10 +21,14 @@ def cmd_cli():
     parser.add_argument("--kickstart", help="Kickstart file name from test/kickstarts/", dest="kickstart_file_name")
     parser.add_argument("--pause-at-summary", help="Pause automated kickstart install at the review screen",
                         action='store_true', dest="pause_at_summary")
+    parser.add_argument("--extra-arg", help="Additional kernel boot argument (can be repeated)",
+                        action='append', dest="extra_args", default=[])
     args = parser.parse_args()
 
     if args.bios:
         os.environ["TEST_FIRMWARE"] = "bios"
+    if args.extra_args:
+        os.environ["TEST_EXTRA_BOOT_ARGS"] = " ".join(args.extra_args)
     machine = VirtInstallMachine(image=args.image, memory_mb=INSTALLER_VM_MEMORY_MB,
                                  kickstart_file_name=args.kickstart_file_name,
                                  pause_at_summary=args.pause_at_summary)

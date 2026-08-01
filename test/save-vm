@@ -1,0 +1,30 @@
+#!/bin/bash
+# Save a running test VM state for fast restore later.
+# Usage: test/save-vm [SNAPSHOT_FILE]
+set -eu
+
+SNAPSHOT="${1:-/tmp/anaconda-snapshot.save}"
+DOMAIN="fedora-rawhide-boot-127.0.0.2-2201"
+BOOT_DIR="/tmp/anaconda-boot"
+
+# Persist kernel+initrd so the snapshot survives temp cleanup
+if [ ! -f "$BOOT_DIR/vmlinuz" ]; then
+    ISO="bots/images/fedora-rawhide-boot"
+    echo "Extracting kernel+initrd from ISO..."
+    mkdir -p "$BOOT_DIR"
+    osirrox -indev "$ISO" \
+        -extract /images/pxeboot/vmlinuz "$BOOT_DIR/vmlinuz" \
+        -extract /images/pxeboot/initrd.img "$BOOT_DIR/initrd.img" 2>/dev/null
+fi
+
+echo "Saving VM state..."
+virsh -c qemu:///session save "$DOMAIN" "$SNAPSHOT"
+
+# Fix kernel+initrd paths in the snapshot (virt-install uses temp paths)
+XML=$(virsh -c qemu:///session save-image-dumpxml "$SNAPSHOT" 2>/dev/null)
+MODIFIED=$(echo "$XML" | sed \
+    -e "s|<kernel>[^<]*</kernel>|<kernel>$BOOT_DIR/vmlinuz</kernel>|" \
+    -e "s|<initrd>[^<]*</initrd>|<initrd>$BOOT_DIR/initrd.img</initrd>|")
+echo "$MODIFIED" | virsh -c qemu:///session save-image-define "$SNAPSHOT" /dev/stdin 2>/dev/null
+
+echo "Saved to $SNAPSHOT ($(du -h "$SNAPSHOT" | cut -f1))"

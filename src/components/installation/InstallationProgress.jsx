@@ -161,7 +161,8 @@ export const InstallationProgress = ({ automatedInstall, onCritFail }) => {
                 onCritFail({ context: _("Installation of the system failed") })
             );
         }
-    }, [installationStatus, onCritFail, pendingError.message, pendingError.type]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- pendingError is read on reconnection only, not reactively
+    }, [installationStatus, onCritFail]);
 
     const submitErrorDecision = (shouldContinue) => {
         if (!errorDialogData) {

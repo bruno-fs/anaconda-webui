@@ -11,10 +11,13 @@ import { TimezoneClient } from "./timezone.js";
 import { UsersClient } from "./users.js";
 
 // Clients needed on the progress page after installation completes (SUCCEEDED/FAILED).
-// Network is needed for bug reporting; Runtime for reboot data.
+// Network is needed for bug reporting; 
+// Runtime for reboot data;
+// Storage is needed for the kebab menu's storage editor item.
 export const minimalModuleClients = [
     NetworkClient,
     RuntimeClient,
+    StorageClient,
 ];
 
 export const moduleClients = [

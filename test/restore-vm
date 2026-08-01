@@ -1,0 +1,16 @@
+#!/bin/bash
+# Restore a test VM from a saved snapshot.
+# Usage: test/restore-vm [SNAPSHOT_FILE]
+set -eu
+
+SNAPSHOT="${1:-/tmp/anaconda-snapshot.save}"
+
+if [ ! -f "$SNAPSHOT" ]; then
+    echo "No snapshot found at $SNAPSHOT" >&2
+    echo "Run test/save-vm first." >&2
+    exit 1
+fi
+
+echo "Restoring VM..."
+virsh -c qemu:///session restore "$SNAPSHOT"
+echo "VM restored. Refresh the browser."
