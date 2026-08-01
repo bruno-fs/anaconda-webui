@@ -212,11 +212,29 @@ class VirtInstallMachine(VirtMachine):
         )
 
         self._domain.resume()
-        Machine.wait_boot(self, timeout_sec=30)
+        self._wait_ssh_quick()
         Machine.execute(self,
             "mount --bind /usr/share/cockpit /usr/local/share/cockpit 2>/dev/null || true")
         Machine.execute(self,
             "journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true")
+
+    def _wait_ssh_quick(self, timeout_sec=10):
+        """Fast SSH reconnect for restored VMs — tight polling, no master kill."""
+        start = time.monotonic()
+        while (time.monotonic() - start) < timeout_sec:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(1)
+                    s.connect((self.ssh_address, int(self.ssh_port)))
+                    if s.recv(10):
+                        self.ssh_reachable = True
+                        self.boot_id = Machine.execute(
+                            self, "cat /proc/sys/kernel/random/boot_id", direct=True)
+                        return
+            except OSError:
+                pass
+            time.sleep(0.1)
+        raise AssertionError(f"SSH not reachable after {timeout_sec}s")
         self._serve_install_http()
 
     def _start_fresh(self, update_img_global_file, iso_path):
