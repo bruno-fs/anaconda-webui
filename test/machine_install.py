@@ -343,7 +343,7 @@ class VirtInstallMachine(VirtMachine):
         # undefine so the domain and EFI NVRAM do not accumulate in the session connection.
         self._execute(
             f"virsh -q -c qemu:///session undefine --nvram "
-            f"--remove-all-storage {self.label} || true"
+            f"{self.label} || true"
         )
         if self.http_install_server:
             self.http_install_server.kill()
