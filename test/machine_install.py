@@ -132,12 +132,97 @@ class VirtInstallMachine(VirtMachine):
         if not os.path.exists(self.payload_path):
             raise FileNotFoundError(f"Missing payload in {self.payload_path}; use 'make payload'.")
 
-        self._serve_install_http()
-
         update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
-        update_img_file = os.path.join(ROOT_DIR, f"{self.label}-updates.img")
         if not os.path.exists(update_img_global_file):
             raise FileNotFoundError("Missing updates.img file")
+
+        # Snapshot caching: skip for live ISOs, kickstart tests, or when disabled
+        use_cache = (
+            os.environ.get("TEST_VM_CACHE", "1") == "1"
+            and not self.is_live()
+            and not self.kickstart_file_name
+        )
+
+        if use_cache:
+            from vm_snapshot_cache import VMSnapshotCache
+
+            cache = VMSnapshotCache()
+            extra_boot_args = os.environ.get("TEST_EXTRA_BOOT_ARGS", "")
+            cache_key = cache.compute_cache_key(
+                updates_img=update_img_global_file,
+                firmware="efi" if self.is_efi else "bios",
+                payload_type=self.payload_type,
+                memory_mb=self.memory_mb,
+                image=self.image,
+                extra_boot_args=extra_boot_args,
+            )
+
+            if cache.has_snapshot(cache_key):
+                try:
+                    self._start_from_snapshot(cache, cache_key)
+                    return
+                except Exception as e:
+                    print(f"VM snapshot: restore failed ({e}), falling back to fresh boot",
+                          file=sys.stderr)
+                    cache.delete_snapshot(cache_key)
+                    # Fall through to fresh boot
+
+        iso_path = self._get_iso_path()
+        self._start_fresh(update_img_global_file, iso_path)
+
+        if use_cache:
+            try:
+                cache.save_snapshot(
+                    self.label, cache_key, iso_path,
+                    self.ssh_address, self.ssh_port,
+                    self.web_address, self.web_port,
+                )
+                # VM was suspended by virsh save — restore it to continue the test
+                cache.restore_snapshot(cache_key, self.label,
+                                       console_file=self.console_file.name if self.console_file else None)
+                self._attach_libvirt_domain()
+                self._domain.resume()
+                Machine.wait_boot(self, timeout_sec=30)
+            except Exception as e:
+                print(f"VM snapshot: save failed ({e}), continuing with fresh boot",
+                      file=sys.stderr)
+                cache.delete_snapshot(cache_key)
+                # The VM was destroyed by virsh save, need a fresh one
+                self._start_fresh(update_img_global_file, iso_path)
+
+    def _get_iso_path(self):
+        if compose := os.environ.get("TEST_COMPOSE"):
+            return f"{os.getcwd()}/test/images/{compose}.iso"
+        return f"{os.getcwd()}/bots/images/{self.image}"
+
+    def _start_from_snapshot(self, cache, cache_key):
+        meta = cache.get_metadata(cache_key)
+        print(f"VM snapshot: restoring from cache ({cache_key})")
+
+        cache.restore_snapshot(
+            cache_key, self.label,
+            console_file=self.console_file.name if self.console_file else None,
+        )
+        self._attach_libvirt_domain()
+
+        cache.rebind_ports(
+            self._qemu_monitor, meta,
+            self.ssh_address, self.ssh_port,
+            self.web_address, self.web_port,
+        )
+
+        self._domain.resume()
+        Machine.wait_boot(self, timeout_sec=30)
+        Machine.execute(self,
+            "mount --bind /usr/share/cockpit /usr/local/share/cockpit 2>/dev/null || true")
+        Machine.execute(self,
+            "journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true")
+        self._serve_install_http()
+
+    def _start_fresh(self, update_img_global_file, iso_path):
+        self._serve_install_http()
+
+        update_img_file = os.path.join(ROOT_DIR, f"{self.label}-updates.img")
 
         inst_ks_arg = ""
         if not self.is_live():
@@ -149,12 +234,6 @@ class VirtInstallMachine(VirtMachine):
                 if self.pause_at_summary:
                     inst_ks_arg += " inst.pauseatsummary"
 
-        # If custom compose if specified for fetching the image then use that
-        # else get the image from the bots directory
-        if compose := os.environ.get("TEST_COMPOSE"):
-            iso_path = f"{os.getcwd()}/test/images/{compose}.iso"
-        else:
-            iso_path = f"{os.getcwd()}/bots/images/{self.image}"
         # edd=off: EDD probing often hangs on virtio/QEMU ("Probing EDD" forever).
         # console=ttyS0: send boot log to file-backed serial when VirtMachine enables console_file.
         # Any console= on the kernel cmdline makes Anaconda default to TUI (argument_parsing.py) and

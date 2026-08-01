@@ -118,6 +118,8 @@ class VirtInstallMachineCase(MachineCase):
         self.allow_journal_messages('.*cockpit.bridge-WARNING: Could not start ssh-agent.*')
         # Nested Cockpit (e.g. storage/network iframes) and language changes which reload the page can log this; harmless.
         self.allow_journal_messages("Error .* data: Connection reset by peer")
+        # SELinux AVC denials in permissive mode on rawhide; not actionable in the installer.
+        self.allow_journal_messages(".*audit:.*avc:.*denied.*permissive=1")
         self.installation_finished = False
 
         if not self.is_nondestructive():
