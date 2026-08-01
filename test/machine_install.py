@@ -157,14 +157,14 @@ class VirtInstallMachine(VirtMachine):
                 extra_boot_args=extra_boot_args,
             )
 
-            if cache.has_snapshot(cache_key):
+            if cache.has_snapshot(cache_key, self.ssh_port):
                 try:
                     self._start_from_snapshot(cache, cache_key)
                     return
                 except Exception as e:
                     print(f"VM snapshot: restore failed ({e}), falling back to fresh boot",
                           file=sys.stderr)
-                    cache.delete_snapshot(cache_key)
+                    cache.delete_snapshot(cache_key, self.ssh_port)
                     # Fall through to fresh boot
 
         iso_path = self._get_iso_path()
@@ -173,19 +173,18 @@ class VirtInstallMachine(VirtMachine):
         if use_cache:
             try:
                 cache.save_snapshot(
-                    self.label, cache_key, iso_path,
-                    self.ssh_address, self.ssh_port,
-                    self.web_address, self.web_port,
+                    self.label, cache_key, self.ssh_port, iso_path,
+                    self.ssh_address, self.web_address, self.web_port,
                 )
                 # VM was suspended by virsh save — restore it to continue the test
-                cache.restore_snapshot(cache_key)
+                cache.restore_snapshot(cache_key, self.ssh_port)
                 self._attach_libvirt_domain()
                 self._domain.resume()
                 Machine.wait_boot(self, timeout_sec=30)
             except Exception as e:
                 print(f"VM snapshot: save failed ({e}), continuing with fresh boot",
                       file=sys.stderr)
-                cache.delete_snapshot(cache_key)
+                cache.delete_snapshot(cache_key, self.ssh_port)
                 # The VM was destroyed by virsh save, need a fresh one
                 self._start_fresh(update_img_global_file, iso_path)
 
@@ -195,14 +194,10 @@ class VirtInstallMachine(VirtMachine):
         return f"{os.getcwd()}/bots/images/{self.image}"
 
     def _start_from_snapshot(self, cache, cache_key):
-        meta = cache.get_metadata(cache_key)
-        print(f"VM snapshot: restoring from cache ({cache_key})")
+        meta = cache.get_metadata(cache_key, self.ssh_port)
+        print(f"VM snapshot: restoring from cache ({cache_key}/{self.ssh_port})")
 
-        # libvirt doesn't allow changing domain name on restore,
-        # so adopt the original name from the snapshot
-        self.label = meta["domain_name"]
-
-        cache.restore_snapshot(cache_key)
+        cache.restore_snapshot(cache_key, self.ssh_port)
         self._attach_libvirt_domain()
 
         cache.rebind_ports(
@@ -217,6 +212,7 @@ class VirtInstallMachine(VirtMachine):
             "mount --bind /usr/share/cockpit /usr/local/share/cockpit 2>/dev/null || true")
         Machine.execute(self,
             "journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true")
+        self._serve_install_http()
 
     def _wait_ssh_quick(self, timeout_sec=10):
         """Fast SSH reconnect for restored VMs — tight polling, no master kill."""
@@ -235,7 +231,6 @@ class VirtInstallMachine(VirtMachine):
                 pass
             time.sleep(0.1)
         raise AssertionError(f"SSH not reachable after {timeout_sec}s")
-        self._serve_install_http()
 
     def _start_fresh(self, update_img_global_file, iso_path):
         self._serve_install_http()
