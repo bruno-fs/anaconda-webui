@@ -12,7 +12,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 DEFAULT_CACHE_DIR = os.path.join(
     os.environ.get("XDG_DATA_HOME", os.path.join(Path.home(), ".local", "share")),
@@ -108,37 +107,15 @@ class VMSnapshotCache:
         meta_file = self.cache_dir / f"{key}.meta"
         return json.loads(meta_file.read_text())
 
-    def restore_snapshot(self, key, new_label, console_file=None):
+    def restore_snapshot(self, key):
         save_file = self.cache_dir / f"{key}.save"
 
-        # Load and modify XML template
-        xml = subprocess.run(
-            [*VIRSH, "save-image-dumpxml", str(save_file)],
-            capture_output=True, text=True, check=True,
-        ).stdout
-        xml = re.sub(r"<name>[^<]*</name>", f"<name>{new_label}</name>", xml)
-        if console_file:
-            xml = re.sub(
-                r"(<serial type=['\"]file['\"]>.*?<source path=)['\"][^'\"]*['\"]",
-                rf"\1'{console_file}'",
-                xml,
-                flags=re.DOTALL,
-            )
-
-        # Write modified XML to temp file and restore paused
-        with NamedTemporaryFile(mode="w", suffix=".xml", delete=False) as f:
-            f.write(xml)
-            tmp_xml = f.name
-
-        try:
-            r = subprocess.run(
-                [*VIRSH, "restore", str(save_file), "--xml", tmp_xml, "--paused"],
-                capture_output=True, text=True,
-            )
-            if r.returncode != 0:
-                raise RuntimeError(f"virsh restore failed: {r.stderr.strip()}")
-        finally:
-            os.unlink(tmp_xml)
+        r = subprocess.run(
+            [*VIRSH, "restore", str(save_file), "--paused"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            raise RuntimeError(f"virsh restore failed: {r.stderr.strip()}")
 
     def rebind_ports(self, qemu_monitor_fn, meta,
                      new_ssh_address, new_ssh_port,

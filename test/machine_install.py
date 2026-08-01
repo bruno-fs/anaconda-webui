@@ -178,8 +178,7 @@ class VirtInstallMachine(VirtMachine):
                     self.web_address, self.web_port,
                 )
                 # VM was suspended by virsh save — restore it to continue the test
-                cache.restore_snapshot(cache_key, self.label,
-                                       console_file=self.console_file.name if self.console_file else None)
+                cache.restore_snapshot(cache_key)
                 self._attach_libvirt_domain()
                 self._domain.resume()
                 Machine.wait_boot(self, timeout_sec=30)
@@ -199,10 +198,11 @@ class VirtInstallMachine(VirtMachine):
         meta = cache.get_metadata(cache_key)
         print(f"VM snapshot: restoring from cache ({cache_key})")
 
-        cache.restore_snapshot(
-            cache_key, self.label,
-            console_file=self.console_file.name if self.console_file else None,
-        )
+        # libvirt doesn't allow changing domain name on restore,
+        # so adopt the original name from the snapshot
+        self.label = meta["domain_name"]
+
+        cache.restore_snapshot(cache_key)
         self._attach_libvirt_domain()
 
         cache.rebind_ports(
