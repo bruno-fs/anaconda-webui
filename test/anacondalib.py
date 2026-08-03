@@ -81,8 +81,9 @@ class VirtInstallMachineCase(MachineCase):
             self.skipTest(f"Skipping for VM setup {self.vm_setup}"
                           f", requires VM setups: {self.run_on_vm_setups}")
 
-        # FIXME: running this in destructive tests fails because the SSH session closes before this is run
-        if self.is_nondestructive():
+        # With snapshot cache, the VM restores to a clean state — no need for D-Bus resets.
+        # Without cache, fall back to the original reset callbacks.
+        if self.is_nondestructive() and not os.environ.get("TEST_VM_CACHE"):
             self.addCleanup(self.resetUsers)
             self.addCleanup(self.resetStorage)
             self.addCleanup(self.resetLanguage)
