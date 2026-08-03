@@ -64,13 +64,15 @@ def pytest_sessionstart(session):
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _global_machine(worker_id):
+def _global_machine(tmp_path_factory, worker_id):
     """Pre-create the global machine so all nondestructive tests share it.
 
-    Each xdist worker gets a deterministic label based on its worker
-    number. VirtNetwork allocates ports with file locking to prevent
-    conflicts between parallel workers.
+    With xdist, a FileLock serializes VM creation so workers boot one at
+    a time. This prevents port races (VirtNetwork uses file locking but
+    the HTTP server doesn't) and avoids I/O contention from simultaneous
+    VM boots.
     """
+    from filelock import FileLock
     from testlib import MachineCase
 
     from anacondalib import VirtInstallMachineCase
@@ -80,12 +82,10 @@ def _global_machine(worker_id):
     else:
         worker_num = int(worker_id.replace("gw", ""))
 
-    case = VirtInstallMachineCase()
-    case._testMethodName = "__pytest_session__"
-
     image = os.environ.get("TEST_OS", "fedora-rawhide-boot")
     label = f"anaconda-test-{image}-w{worker_num}"
 
+    # Check for stale domain
     import libvirt
 
     conn = libvirt.open("qemu:///session")
@@ -94,7 +94,7 @@ def _global_machine(worker_id):
         if dom.isActive():
             pytest.exit(
                 f"Domain '{label}' is already running. "
-                "Stop it before running tests (anadev vm stop or virsh destroy).",
+                "Stop it before running tests (anadev test clean).",
                 returncode=1,
             )
     except libvirt.libvirtError:
@@ -102,9 +102,19 @@ def _global_machine(worker_id):
     finally:
         conn.close()
 
-    machine = case.new_machine(restrict=True, cleanup=False, label=label)
+    case = VirtInstallMachineCase()
+    case._testMethodName = "__pytest_session__"
 
-    machine.start()
+    # Serialize VM creation across workers to prevent port and I/O races
+    if worker_id == "master":
+        machine = case.new_machine(restrict=True, cleanup=False, label=label)
+        machine.start()
+    else:
+        root_tmp_dir = tmp_path_factory.getbasetemp().parent
+        lock = root_tmp_dir / "vm_boot.lock"
+        with FileLock(str(lock)):
+            machine = case.new_machine(restrict=True, cleanup=False, label=label)
+            machine.start()
 
     MachineCase.global_machine = machine
 
