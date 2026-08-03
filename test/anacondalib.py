@@ -90,6 +90,8 @@ class VirtInstallMachineCase(MachineCase):
         # and force all tests to reuse the global machine.
         if os.environ.get("TEST_VM_CACHE"):
             self._force_nondestructive = True
+            # Disk cleanup is still needed between tests
+            self.addCleanup(self.removeAllDisks)
             # Save provision kwargs (kickstart_file_name, etc.) and clear
             # provision so MachineCase.setUp() uses the global machine
             self._provision_kwargs = {}
