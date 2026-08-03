@@ -50,7 +50,13 @@ class VirtInstallMachine(VirtMachine):
         deadline = time.monotonic() + timeout_sec
         while time.monotonic() < deadline:
             try:
-                self._domain = conn.lookupByName(self.label)
+                dom = conn.lookupByName(self.label)
+                if not dom.isActive():
+                    raise AssertionError(
+                        f"libvirt domain {self.label!r} exists but is not running "
+                        "(QEMU may have crashed — check memory or virt-install errors)"
+                    )
+                self._domain = dom
                 return
             except libvirt.libvirtError:
                 time.sleep(0.5)
@@ -138,7 +144,7 @@ class VirtInstallMachine(VirtMachine):
 
         # Snapshot caching: skip for live ISOs or when disabled
         use_cache = (
-            os.environ.get("TEST_VM_CACHE", "1") == "1"
+            os.environ.get("TEST_VM_CACHE", "0") == "1"
             and not self.is_live()
         )
 
