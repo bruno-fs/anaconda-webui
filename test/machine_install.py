@@ -269,7 +269,7 @@ class VirtInstallMachine(VirtMachine):
         else:
             raise AssertionError("Anaconda did not become ready after kickstart restart")
 
-    def _wait_ssh_quick(self, timeout_sec=10):
+    def _wait_ssh_quick(self, timeout_sec=30):
         """Fast SSH reconnect for restored VMs — tight polling, no master kill."""
         start = time.monotonic()
         while (time.monotonic() - start) < timeout_sec:
