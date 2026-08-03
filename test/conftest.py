@@ -39,10 +39,6 @@ def pytest_unconfigure(config):
             link.unlink()
 
 
-def pytest_collection_modifyitems(items):
-    """Filter out test_main() which is an entry point, not a test."""
-    items[:] = [i for i in items if i.name != "test_main"]
-
 
 def pytest_sessionstart(session):
     """Set up testlib.opts for the test session."""

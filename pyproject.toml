@@ -64,6 +64,7 @@ ignore = [
 testpaths = ["test"]
 python_files = "check_*"
 python_classes = "Test"
+python_functions = "test[A-Z]*"
 
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
