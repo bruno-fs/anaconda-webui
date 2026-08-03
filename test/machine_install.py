@@ -217,7 +217,22 @@ class VirtInstallMachine(VirtMachine):
 
         cache.restore_snapshot(cache_key, self.label)
         self._attach_libvirt_domain()
-        self._domain.resume()
+
+        # Rebind ports if they changed since the snapshot was saved
+        old_ssh = f"{meta['ssh_address']}:{meta['ssh_port']}"
+        new_ssh = f"{self.ssh_address}:{self.ssh_port}"
+        old_web = f"{meta['web_address']}:{meta['web_port']}"
+        new_web = f"{self.web_address}:{self.web_port}"
+        if old_ssh != new_ssh or old_web != new_web:
+            self._domain.resume()
+            cache.rebind_ports(
+                self._qemu_monitor, meta,
+                self.ssh_address, self.ssh_port,
+                self.web_address, self.web_port,
+            )
+        else:
+            self._domain.resume()
+
         self._wait_ssh_quick()
         Machine.execute(self,
             "mount --bind /usr/share/cockpit /usr/local/share/cockpit 2>/dev/null || true")
