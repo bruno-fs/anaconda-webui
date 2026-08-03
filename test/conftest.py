@@ -57,7 +57,8 @@ def pytest_sessionstart(session):
     # may not exist in the installer environment
     testlib.opts.tests = []
 
-    from testlib import attach, TEST_DIR as TESTLIB_DIR
+    from testlib import TEST_DIR as TESTLIB_DIR
+    from testlib import attach
 
     attach(os.path.join(TESTLIB_DIR, "common/pixeldiff.html"))
     attach(os.path.join(TESTLIB_DIR, "common/link-patterns.json"))
@@ -72,10 +73,8 @@ def _global_machine(tmp_path_factory, worker_id):
     the HTTP server doesn't) and avoids I/O contention from simultaneous
     VM boots.
     """
-    from filelock import FileLock
-    from testlib import MachineCase
-
     from anacondalib import VirtInstallMachineCase
+    from testlib import MachineCase
 
     if worker_id == "master":
         worker_num = 0
@@ -110,11 +109,18 @@ def _global_machine(tmp_path_factory, worker_id):
         machine = case.new_machine(restrict=True, cleanup=False, label=label)
         machine.start()
     else:
+        import fcntl
+
         root_tmp_dir = tmp_path_factory.getbasetemp().parent
-        lock = root_tmp_dir / "vm_boot.lock"
-        with FileLock(str(lock)):
+        lock_path = root_tmp_dir / "vm_boot.lock"
+        lock_fd = open(lock_path, "w")
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
             machine = case.new_machine(restrict=True, cleanup=False, label=label)
             machine.start()
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
 
     MachineCase.global_machine = machine
 
