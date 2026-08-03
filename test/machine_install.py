@@ -197,6 +197,19 @@ class VirtInstallMachine(VirtMachine):
         meta = cache.get_metadata(cache_key, self.ssh_port)
         print(f"VM snapshot: restoring from cache ({cache_key}/{self.ssh_port})")
 
+        # Check if domain is already running (e.g. reused across tests)
+        try:
+            conn = self.virt_connection
+            dom = conn.lookupByName(meta["domain_name"])
+            if dom.isActive():
+                self._domain = dom
+                self.label = meta["domain_name"]
+                Machine.wait_boot(self, timeout_sec=10)
+                self._serve_install_http()
+                return
+        except libvirt.libvirtError:
+            pass
+
         cache.restore_snapshot(cache_key, self.ssh_port)
         self._attach_libvirt_domain()
         self._domain.resume()
