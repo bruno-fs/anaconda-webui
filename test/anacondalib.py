@@ -90,6 +90,13 @@ class VirtInstallMachineCase(MachineCase):
         # and force all tests to reuse the global machine.
         if os.environ.get("TEST_VM_CACHE"):
             self._force_nondestructive = True
+            # Save provision kwargs (kickstart_file_name, etc.) and clear
+            # provision so MachineCase.setUp() uses the global machine
+            self._provision_kwargs = {}
+            if self.provision:
+                for opts in self.provision.values():
+                    self._provision_kwargs.update(opts)
+                self.provision = None
         else:
             self._force_nondestructive = False
             if self.is_nondestructive():
@@ -101,6 +108,14 @@ class VirtInstallMachineCase(MachineCase):
                 self.addCleanup(self.resetPayloadDNF)
 
         super().setUp()
+
+        # Apply saved provision kwargs to the global machine
+        if os.environ.get("TEST_VM_CACHE") and self._provision_kwargs:
+            m = self.machine
+            if "kickstart_file_name" in self._provision_kwargs:
+                m.kickstart_file_name = self._provision_kwargs["kickstart_file_name"]
+                m.pause_at_summary = self._provision_kwargs.get("pause_at_summary", False)
+                m._apply_kickstart_and_restart()
 
         m = self.machine
         b = self.browser
