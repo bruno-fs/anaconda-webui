@@ -274,6 +274,8 @@ class VirtInstallMachine(VirtMachine):
         raise AssertionError(f"SSH not reachable after {timeout_sec}s")
 
     def _start_fresh(self, update_img_global_file, iso_path):
+        # Clean up any stale domain with the same name
+        self._cleanup(quick=True)
         self._serve_install_http()
 
         update_img_file = os.path.join(ROOT_DIR, f"{self.label}-updates.img")
