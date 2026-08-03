@@ -68,12 +68,13 @@ class VirtInstallMachine(VirtMachine):
         return subprocess.check_call(cmd, stderr=subprocess.STDOUT, shell=True)
 
     def _get_free_port(self, start_port=8000):
-        port = start_port
+        # Use SSH port as offset to avoid collisions between parallel workers
+        port = start_port + int(self.ssh_port) - 2200
         while True:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 if sock.connect_ex(('127.0.0.1', port)) != 0:
                     return port
-            port = port + 1
+            port = port + 100
 
     def _wait_http_server_running(self, port):
         WAIT_HTTP_RUNNING = """
