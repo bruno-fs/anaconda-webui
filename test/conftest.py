@@ -67,18 +67,28 @@ def pytest_sessionstart(session):
 
 
 @pytest.fixture(autouse=True, scope="session")
-def _global_machine():
-    """Pre-create the global machine so all nondestructive tests share it."""
-    from machine.testvm import VirtMachine  # noqa: F811
+def _global_machine(worker_id):
+    """Pre-create the global machine so all nondestructive tests share it.
+
+    Each xdist worker gets a deterministic label based on its worker
+    number. VirtNetwork allocates ports with file locking to prevent
+    conflicts between parallel workers.
+    """
     from testlib import MachineCase
 
     from anacondalib import VirtInstallMachineCase
 
-    # Create a MachineCase instance to access new_machine()
+    if worker_id == "master":
+        worker_num = 0
+    else:
+        worker_num = int(worker_id.replace("gw", ""))
+
+    label = f"anaconda-test-{worker_num}"
+
     case = VirtInstallMachineCase()
     case._testMethodName = "__pytest_session__"
 
-    machine = case.new_machine(restrict=True, cleanup=False)
+    machine = case.new_machine(restrict=True, cleanup=False, label=label)
     machine.start()
 
     MachineCase.global_machine = machine
