@@ -2,12 +2,14 @@
 
 Enables pytest to collect and run the existing unittest-based check-* files
 without modifications. Generates .py symlinks for files without extensions,
-sets up testlib.opts, and filters out non-test functions.
+sets up testlib.opts, and pre-creates a global machine for nondestructive tests.
 """
 
 import os
 import sys
 from pathlib import Path
+
+import pytest
 
 # Set up PYTHONPATH for test imports
 TEST_DIR = Path(__file__).parent
@@ -62,3 +64,25 @@ def pytest_sessionstart(session):
 
     attach(os.path.join(TESTLIB_DIR, "common/pixeldiff.html"))
     attach(os.path.join(TESTLIB_DIR, "common/link-patterns.json"))
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _global_machine():
+    """Pre-create the global machine so all nondestructive tests share it."""
+    from machine.testvm import VirtMachine  # noqa: F811
+    from testlib import MachineCase
+
+    from anacondalib import VirtInstallMachineCase
+
+    # Create a MachineCase instance to access new_machine()
+    case = VirtInstallMachineCase()
+    case._testMethodName = "__pytest_session__"
+
+    machine = case.new_machine(restrict=True, cleanup=False)
+    machine.start()
+
+    MachineCase.global_machine = machine
+
+    yield machine
+
+    machine.kill()
