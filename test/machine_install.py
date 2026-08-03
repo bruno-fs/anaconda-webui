@@ -199,13 +199,6 @@ class VirtInstallMachine(VirtMachine):
 
         cache.restore_snapshot(cache_key, self.ssh_port)
         self._attach_libvirt_domain()
-
-        cache.rebind_ports(
-            self._qemu_monitor, meta,
-            self.ssh_address, self.ssh_port,
-            self.web_address, self.web_port,
-        )
-
         self._domain.resume()
         self._wait_ssh_quick()
         Machine.execute(self,
