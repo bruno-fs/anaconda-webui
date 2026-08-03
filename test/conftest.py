@@ -54,6 +54,10 @@ def pytest_sessionstart(session):
     testlib.opts.coverage = False
     testlib.opts.fetch = False
 
+    # testlib.setUp writes /etc/cockpit/cockpit.conf but the directory
+    # may not exist in the installer environment
+    testlib.opts.tests = []
+
     from testlib import attach, TEST_DIR as TESTLIB_DIR
 
     attach(os.path.join(TESTLIB_DIR, "common/pixeldiff.html"))

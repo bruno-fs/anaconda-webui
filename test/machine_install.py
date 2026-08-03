@@ -205,6 +205,7 @@ class VirtInstallMachine(VirtMachine):
                 self._domain = dom
                 self.label = meta["domain_name"]
                 Machine.wait_boot(self, timeout_sec=10)
+                Machine.execute(self, "mkdir -p /etc/cockpit")
                 self._serve_install_http()
                 return
         except libvirt.libvirtError:
@@ -216,6 +217,8 @@ class VirtInstallMachine(VirtMachine):
         self._wait_ssh_quick()
         Machine.execute(self,
             "mount --bind /usr/share/cockpit /usr/local/share/cockpit 2>/dev/null || true")
+        Machine.execute(self,
+            "mkdir -p /etc/cockpit")
         Machine.execute(self,
             "journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true")
         self._serve_install_http()
