@@ -39,18 +39,18 @@ class VMSnapshotCache:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _slot_id(self, ssh_port):
-        return str(ssh_port)
+    def _slot_id(self, label):
+        return label
 
-    def has_snapshot(self, key, ssh_port):
+    def has_snapshot(self, key, label):
         d = self._key_dir(key)
-        slot = self._slot_id(ssh_port)
+        slot = self._slot_id(label)
         return (d / f"{slot}.save").exists() and (d / f"{slot}.meta").exists()
 
-    def save_snapshot(self, domain_name, key, ssh_port, iso_path,
-                      ssh_address, web_address, web_port):
+    def save_snapshot(self, domain_name, key, label, iso_path,
+                      ssh_address, ssh_port, web_address, web_port):
         d = self._key_dir(key)
-        slot = self._slot_id(ssh_port)
+        slot = self._slot_id(label)
         lock_path = d / f"{slot}.lock"
         lock_fd = open(lock_path, "w")
         try:
@@ -114,14 +114,14 @@ class VMSnapshotCache:
             fcntl.flock(lock_fd, fcntl.LOCK_UN)
             lock_fd.close()
 
-    def get_metadata(self, key, ssh_port):
+    def get_metadata(self, key, label):
         d = self._key_dir(key)
-        meta_file = d / f"{self._slot_id(ssh_port)}.meta"
+        meta_file = d / f"{self._slot_id(label)}.meta"
         return json.loads(meta_file.read_text())
 
-    def restore_snapshot(self, key, ssh_port):
+    def restore_snapshot(self, key, label):
         d = self._key_dir(key)
-        save_file = d / f"{self._slot_id(ssh_port)}.save"
+        save_file = d / f"{self._slot_id(label)}.save"
 
         r = subprocess.run(
             [*VIRSH, "restore", str(save_file), "--paused"],
@@ -151,10 +151,10 @@ class VMSnapshotCache:
             f"hostfwd_add hostnet0 tcp:{new_web_address}:{new_web_port}-:80"
         )
 
-    def delete_snapshot(self, key, ssh_port=None):
+    def delete_snapshot(self, key, label=None):
         d = self._key_dir(key)
-        if ssh_port:
-            slot = self._slot_id(ssh_port)
+        if label:
+            slot = self._slot_id(label)
             for suffix in (".save", ".meta", ".lock"):
                 (d / f"{slot}{suffix}").unlink(missing_ok=True)
         else:

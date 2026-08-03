@@ -162,14 +162,14 @@ class VirtInstallMachine(VirtMachine):
                 extra_boot_args=extra_boot_args,
             )
 
-            if cache.has_snapshot(cache_key, self.ssh_port):
+            if cache.has_snapshot(cache_key, self.label):
                 try:
                     self._start_from_snapshot(cache, cache_key)
                     return
                 except Exception as e:
                     print(f"VM snapshot: restore failed ({e}), falling back to fresh boot",
                           file=sys.stderr)
-                    cache.delete_snapshot(cache_key, self.ssh_port)
+                    cache.delete_snapshot(cache_key, self.label)
                     # Fall through to fresh boot
 
         iso_path = self._get_iso_path()
@@ -178,18 +178,18 @@ class VirtInstallMachine(VirtMachine):
         if use_cache:
             try:
                 cache.save_snapshot(
-                    self.label, cache_key, self.ssh_port, iso_path,
-                    self.ssh_address, self.web_address, self.web_port,
+                    self.label, cache_key, self.label, iso_path,
+                    self.ssh_address, self.ssh_port, self.web_address, self.web_port,
                 )
                 # VM was suspended by virsh save — restore it to continue the test
-                cache.restore_snapshot(cache_key, self.ssh_port)
+                cache.restore_snapshot(cache_key, self.label)
                 self._attach_libvirt_domain()
                 self._domain.resume()
                 Machine.wait_boot(self, timeout_sec=30)
             except Exception as e:
                 print(f"VM snapshot: save failed ({e}), continuing with fresh boot",
                       file=sys.stderr)
-                cache.delete_snapshot(cache_key, self.ssh_port)
+                cache.delete_snapshot(cache_key, self.label)
                 # The VM was destroyed by virsh save, need a fresh one
                 self._start_fresh(update_img_global_file, iso_path)
 
@@ -199,8 +199,8 @@ class VirtInstallMachine(VirtMachine):
         return f"{os.getcwd()}/bots/images/{self.image}"
 
     def _start_from_snapshot(self, cache, cache_key):
-        meta = cache.get_metadata(cache_key, self.ssh_port)
-        print(f"VM snapshot: restoring from cache ({cache_key}/{self.ssh_port})")
+        meta = cache.get_metadata(cache_key, self.label)
+        print(f"VM snapshot: restoring from cache ({cache_key}/{self.label})")
 
         # Check if domain is already running (e.g. reused across tests)
         try:
@@ -216,7 +216,7 @@ class VirtInstallMachine(VirtMachine):
         except libvirt.libvirtError:
             pass
 
-        cache.restore_snapshot(cache_key, self.ssh_port)
+        cache.restore_snapshot(cache_key, self.label)
         self._attach_libvirt_domain()
         self._domain.resume()
         self._wait_ssh_quick()
