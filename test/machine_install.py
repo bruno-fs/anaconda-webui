@@ -215,23 +215,13 @@ class VirtInstallMachine(VirtMachine):
         except libvirt.libvirtError:
             pass
 
-        cache.restore_snapshot(cache_key, self.label)
+        cache.restore_snapshot(
+            cache_key, self.label,
+            ssh_address=self.ssh_address, ssh_port=self.ssh_port,
+            web_address=self.web_address, web_port=self.web_port,
+        )
         self._attach_libvirt_domain()
-
-        # Rebind ports if they changed since the snapshot was saved
-        old_ssh = f"{meta['ssh_address']}:{meta['ssh_port']}"
-        new_ssh = f"{self.ssh_address}:{self.ssh_port}"
-        old_web = f"{meta['web_address']}:{meta['web_port']}"
-        new_web = f"{self.web_address}:{self.web_port}"
-        if old_ssh != new_ssh or old_web != new_web:
-            self._domain.resume()
-            cache.rebind_ports(
-                self._qemu_monitor, meta,
-                self.ssh_address, self.ssh_port,
-                self.web_address, self.web_port,
-            )
-        else:
-            self._domain.resume()
+        self._domain.resume()
 
         self._wait_ssh_quick()
         Machine.execute(self,

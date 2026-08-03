@@ -119,14 +119,51 @@ class VMSnapshotCache:
         meta_file = d / f"{self._slot_id(label)}.meta"
         return json.loads(meta_file.read_text())
 
-    def restore_snapshot(self, key, label):
+    def restore_snapshot(self, key, label,
+                         ssh_address=None, ssh_port=None,
+                         web_address=None, web_port=None):
         d = self._key_dir(key)
         save_file = d / f"{self._slot_id(label)}.save"
 
-        r = subprocess.run(
-            [*VIRSH, "restore", str(save_file), "--paused"],
-            capture_output=True, text=True,
+        # If ports changed, rewrite them in a COW copy before restoring
+        meta = self.get_metadata(key, label)
+        needs_rewrite = (
+            ssh_port and (str(ssh_port) != str(meta.get("ssh_port"))
+                          or str(web_port) != str(meta.get("web_port")))
         )
+
+        if needs_rewrite:
+            tmp_save = d / f"{self._slot_id(label)}.{os.getpid()}.tmp.save"
+            subprocess.run(
+                ["cp", "--reflink=auto", str(save_file), str(tmp_save)],
+                check=True,
+            )
+            try:
+                xml = subprocess.run(
+                    [*VIRSH, "save-image-dumpxml", str(tmp_save)],
+                    capture_output=True, text=True, check=True,
+                ).stdout
+                old_ssh = f"hostfwd=tcp:{meta['ssh_address']}:{meta['ssh_port']}-:22"
+                new_ssh = f"hostfwd=tcp:{ssh_address}:{ssh_port}-:22"
+                old_web = f"hostfwd=tcp:{meta['web_address']}:{meta['web_port']}-:80"
+                new_web = f"hostfwd=tcp:{web_address}:{web_port}-:80"
+                xml = xml.replace(old_ssh, new_ssh).replace(old_web, new_web)
+                subprocess.run(
+                    [*VIRSH, "save-image-define", str(tmp_save), "/dev/stdin"],
+                    input=xml, text=True, capture_output=True, check=True,
+                )
+                r = subprocess.run(
+                    [*VIRSH, "restore", str(tmp_save), "--paused"],
+                    capture_output=True, text=True,
+                )
+            finally:
+                tmp_save.unlink(missing_ok=True)
+        else:
+            r = subprocess.run(
+                [*VIRSH, "restore", str(save_file), "--paused"],
+                capture_output=True, text=True,
+            )
+
         if r.returncode != 0:
             raise RuntimeError(f"virsh restore failed: {r.stderr.strip()}")
 
