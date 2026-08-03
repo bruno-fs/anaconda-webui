@@ -136,11 +136,10 @@ class VirtInstallMachine(VirtMachine):
         if not os.path.exists(update_img_global_file):
             raise FileNotFoundError("Missing updates.img file")
 
-        # Snapshot caching: skip for live ISOs, kickstart tests, or when disabled
+        # Snapshot caching: skip for live ISOs or when disabled
         use_cache = (
             os.environ.get("TEST_VM_CACHE", "1") == "1"
             and not self.is_live()
-            and not self.kickstart_file_name
         )
 
         if use_cache:
@@ -222,6 +221,33 @@ class VirtInstallMachine(VirtMachine):
         Machine.execute(self,
             "journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true")
         self._serve_install_http()
+
+        if self.kickstart_file_name:
+            self._apply_kickstart_and_restart()
+
+    def _apply_kickstart_and_restart(self):
+        """Copy kickstart to VM and restart anaconda so it picks it up."""
+        ks_path = os.path.join(WEBUI_TEST_DIR, "kickstarts", self.kickstart_file_name)
+        with open(ks_path) as f:
+            ks_content = f.read()
+        if self.pause_at_summary:
+            ks_content += "\n%anaconda\npauseatsummary\n%end\n"
+        Machine.execute(self,
+            f"cat > /run/install/ks.cfg << 'ANADEV_EOF'\n{ks_content}\nANADEV_EOF")
+        Machine.execute(self, """
+            systemctl stop anaconda webui-cockpit-ws
+            kill -9 $(ps -eo pid,args | grep -E 'pyanaconda\\.modules\\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity|anaconda-bus' | grep -v grep | awk '{print $1}') 2>/dev/null
+            rm -f /run/anaconda/bus.address /run/anaconda/backend_ready
+            systemctl start anaconda
+        """)
+        for _ in range(120):
+            try:
+                Machine.execute(self, "test -f /run/anaconda/backend_ready")
+                break
+            except subprocess.CalledProcessError:
+                time.sleep(1)
+        else:
+            raise AssertionError("Anaconda did not become ready after kickstart restart")
 
     def _wait_ssh_quick(self, timeout_sec=10):
         """Fast SSH reconnect for restored VMs — tight polling, no master kill."""
