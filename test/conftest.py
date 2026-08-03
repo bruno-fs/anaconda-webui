@@ -86,10 +86,10 @@ def _global_machine(worker_id):
     case = VirtInstallMachineCase()
     case._testMethodName = "__pytest_session__"
 
-    machine = case.new_machine(restrict=True, cleanup=False)
-
     image = os.environ.get("TEST_OS", "fedora-rawhide-boot")
-    machine.label = f"anaconda-{image}-{machine.ssh_address}-{machine.ssh_port}-w{worker_num}"
+    label = f"anaconda-test-{image}-w{worker_num}"
+
+    machine = case.new_machine(restrict=True, cleanup=False, label=label)
 
     machine.start()
 
