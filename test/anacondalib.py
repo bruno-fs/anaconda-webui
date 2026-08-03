@@ -42,6 +42,11 @@ class VirtInstallMachineCase(MachineCase):
     run_on_vm_setups: list[str] = [""]
     vm_setup = ""
 
+    def is_nondestructive(self):
+        if getattr(self, "_force_nondestructive", False):
+            return True
+        return super().is_nondestructive()
+
     def partition_disk(self):
         """ Override this method to partition the disk """
         pass
@@ -81,15 +86,19 @@ class VirtInstallMachineCase(MachineCase):
             self.skipTest(f"Skipping for VM setup {self.vm_setup}"
                           f", requires VM setups: {self.run_on_vm_setups}")
 
-        # With snapshot cache, the VM restores to a clean state — no need for D-Bus resets.
-        # Without cache, fall back to the original reset callbacks.
-        if self.is_nondestructive() and not os.environ.get("TEST_VM_CACHE"):
-            self.addCleanup(self.resetUsers)
-            self.addCleanup(self.resetStorage)
-            self.addCleanup(self.resetLanguage)
-            self.addCleanup(self.resetMisc)
-            self.addCleanup(self.resetTimezone)
-            self.addCleanup(self.resetPayloadDNF)
+        # With snapshot cache, skip D-Bus resets (snapshot handles clean state)
+        # and force all tests to reuse the global machine.
+        if os.environ.get("TEST_VM_CACHE"):
+            self._force_nondestructive = True
+        else:
+            self._force_nondestructive = False
+            if self.is_nondestructive():
+                self.addCleanup(self.resetUsers)
+                self.addCleanup(self.resetStorage)
+                self.addCleanup(self.resetLanguage)
+                self.addCleanup(self.resetMisc)
+                self.addCleanup(self.resetTimezone)
+                self.addCleanup(self.resetPayloadDNF)
 
         super().setUp()
 
