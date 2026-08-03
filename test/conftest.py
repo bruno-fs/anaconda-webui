@@ -18,17 +18,32 @@ sys.path.insert(0, str(TEST_DIR / "common"))
 sys.path.insert(0, str(ROOT_DIR / "bots"))
 
 os.environ.setdefault("TEST_OS", "fedora-rawhide-boot")
+os.environ.setdefault("TEST_VM_CACHE", "1")
 os.environ["TEST_ALLOW_NOLOGIN"] = "true"
 
 
 def pytest_configure(config):
-    """Create .py symlinks for check-* files so pytest can collect them."""
+    """Create .py symlinks for check-* files and cap xdist workers by RAM."""
     for check_file in TEST_DIR.glob("check-*"):
         if check_file.suffix or check_file.is_dir():
             continue
         link = check_file.with_name(check_file.name.replace("-", "_") + ".py")
         if not link.exists():
             link.symlink_to(check_file.name)
+
+    # Cap xdist parallelism based on available RAM (4.5GB per VM)
+    numprocesses = getattr(config.option, "numprocesses", None)
+    if numprocesses is not None:
+        try:
+            import psutil
+
+            avail_gb = psutil.virtual_memory().available / (1024**3)
+            max_vms = max(1, int(avail_gb // 4.5))
+            maxprocs = getattr(config.option, "maxprocesses", None)
+            if maxprocs is None or maxprocs > max_vms:
+                config.option.maxprocesses = max_vms
+        except ImportError:
+            pass
 
 
 def pytest_unconfigure(config):
