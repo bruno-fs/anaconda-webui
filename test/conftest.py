@@ -89,6 +89,22 @@ def _global_machine(worker_id):
     image = os.environ.get("TEST_OS", "fedora-rawhide-boot")
     label = f"anaconda-test-{image}-w{worker_num}"
 
+    import libvirt
+
+    conn = libvirt.open("qemu:///session")
+    try:
+        dom = conn.lookupByName(label)
+        if dom.isActive():
+            pytest.exit(
+                f"Domain '{label}' is already running. "
+                "Stop it before running tests (anadev vm stop or virsh destroy).",
+                returncode=1,
+            )
+    except libvirt.libvirtError:
+        pass
+    finally:
+        conn.close()
+
     machine = case.new_machine(restrict=True, cleanup=False, label=label)
 
     machine.start()
