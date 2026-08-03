@@ -60,6 +60,11 @@ ignore = [
     "RUF100", # Unused `noqa` directive (used by flake8)
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["test"]
+python_files = "check_*"
+python_classes = "Test"
+
 [tool.ruff.lint.flake8-pytest-style]
 fixture-parentheses = false
 mark-parentheses = false
