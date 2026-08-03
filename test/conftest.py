@@ -104,23 +104,8 @@ def _global_machine(tmp_path_factory, worker_id):
     case = VirtInstallMachineCase()
     case._testMethodName = "__pytest_session__"
 
-    # Serialize VM creation across workers to prevent port and I/O races
-    if worker_id == "master":
-        machine = case.new_machine(restrict=True, cleanup=False, label=label)
-        machine.start()
-    else:
-        import fcntl
-
-        root_tmp_dir = tmp_path_factory.getbasetemp().parent
-        lock_path = root_tmp_dir / "vm_boot.lock"
-        lock_fd = open(lock_path, "w")
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        try:
-            machine = case.new_machine(restrict=True, cleanup=False, label=label)
-            machine.start()
-        finally:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            lock_fd.close()
+    machine = case.new_machine(restrict=True, cleanup=False, label=label)
+    machine.start()
 
     MachineCase.global_machine = machine
 
