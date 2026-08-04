@@ -247,7 +247,10 @@ class VirtInstallMachine(VirtMachine):
         with open(ks_path) as f:
             ks_content = f.read()
         if self.pause_at_summary:
-            ks_content += "\n%anaconda\npauseatsummary\n%end\n"
+            Machine.execute(self, """
+                sed -i '/^pause_at_summary/d' /run/anaconda/anaconda.conf
+                sed -i '/\\[Runtime\\]/a pause_at_summary = True' /run/anaconda/anaconda.conf
+            """)
         # Prepend payload source — anaconda reads /run/install/ks.cfg
         # INSTEAD OF interactive-defaults.ks, so the payload config
         # that was baked into updates.img is lost.
@@ -257,7 +260,17 @@ class VirtInstallMachine(VirtMachine):
         Machine.execute(self, """
             systemctl stop anaconda webui-cockpit-ws 2>/dev/null || true
             kill -9 $(ps -eo pid,args | grep -E 'pyanaconda\\.modules\\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity|anaconda-bus' | grep -v grep | awk '{print $1}') 2>/dev/null || true
-            rm -f /run/anaconda/bus.address /run/anaconda/backend_ready /tmp/dbus-*
+            rm -f /run/anaconda/bus.address /run/anaconda/backend_ready /run/anaconda/installation-error-msg /tmp/dbus-*
+            umount -lf /mnt/sysroot /mnt/sysimage 2>/dev/null || true
+            swapoff -a 2>/dev/null || true
+            vgremove -ff -y $(vgs --noheadings -o vg_name 2>/dev/null) 2>/dev/null || true
+            pvremove -ff -y $(pvs --noheadings -o pv_name 2>/dev/null) 2>/dev/null || true
+            dmsetup remove_all 2>/dev/null || true
+            for disk in /dev/vd[a-z]; do
+                [ -b "$disk" ] && wipefs -af "$disk" 2>/dev/null && partprobe "$disk" 2>/dev/null
+            done
+            udevadm settle 2>/dev/null || true
+            tmux kill-server 2>/dev/null || true
             systemctl start anaconda
         """)
         for _ in range(120):
