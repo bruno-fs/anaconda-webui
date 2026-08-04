@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT_DIR / "bots"))
 
 os.environ.setdefault("TEST_OS", "fedora-rawhide-boot")
 os.environ.setdefault("TEST_VM_CACHE", "1")
+os.environ.setdefault("TEST_ATTACHMENTS", str(ROOT_DIR / "tmp" / "testlogs"))
 os.environ["TEST_ALLOW_NOLOGIN"] = "true"
 
 
@@ -32,11 +33,11 @@ def pytest_configure(config):
             link.symlink_to(check_file.name)
 
 
-def pytest_unconfigure(config):
-    """Clean up .py symlinks."""
-    for link in TEST_DIR.glob("check_*.py"):
-        if link.is_symlink():
-            link.unlink()
+# def pytest_unconfigure(config):
+#     """Clean up .py symlinks."""
+#     for link in TEST_DIR.glob("check_*.py"):
+#         if link.is_symlink():
+#             link.unlink()
 
 
 
