@@ -23,7 +23,23 @@ os.environ.setdefault("TEST_ATTACHMENTS", str(ROOT_DIR / "tmp" / "testlogs"))
 os.environ["TEST_ALLOW_NOLOGIN"] = "true"
 
 
+def pytest_addoption(parser):
+    parser.addoption("--disable-vm-cache", action="store_true", default=False,
+                     help="Disable VM snapshot cache (fresh boot for each test)")
+    parser.addoption("--show-browser", action="store_true", default=False,
+                     help="Show the browser window during tests")
+    parser.addoption("--no-pixel-tests", action="store_true", default=False,
+                     help="Skip pixel (screenshot) comparison tests")
+
+
 def pytest_configure(config):
+    if config.getoption("--disable-vm-cache", default=False):
+        os.environ["TEST_VM_CACHE"] = "0"
+    if config.getoption("--show-browser", default=False):
+        os.environ["TEST_SHOW_BROWSER"] = "1"
+    if config.getoption("--no-pixel-tests", default=False):
+        os.environ["TEST_NO_PIXEL_TESTS"] = "1"
+
     """Create .py symlinks for check-* files so pytest can collect them."""
     for check_file in TEST_DIR.glob("check-*"):
         if check_file.suffix or check_file.is_dir():

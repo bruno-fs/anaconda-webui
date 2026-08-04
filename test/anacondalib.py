@@ -30,6 +30,7 @@ pixel_tests_ignore = ["#anaconda-screen-review-target-system-timezone"]
 
 
 INSTALLER_VM_MEMORY_MB = 4096
+USE_VM_CACHE = os.environ.get("TEST_VM_CACHE", "0") == "1"
 
 
 class VirtInstallMachineCase(MachineCase):
@@ -46,6 +47,12 @@ class VirtInstallMachineCase(MachineCase):
         if getattr(self, "_force_nondestructive", False):
             return True
         return super().is_nondestructive()
+
+    def new_browser(self, **kwargs):
+        b = super().new_browser(**kwargs)
+        if os.environ.get("TEST_NO_PIXEL_TESTS"):
+            b.pixels_label = None
+        return b
 
     def partition_disk(self):
         """ Override this method to partition the disk """
@@ -88,38 +95,33 @@ class VirtInstallMachineCase(MachineCase):
 
         # With snapshot cache, skip D-Bus resets (snapshot handles clean state)
         # and force all tests to reuse the global machine.
-        if os.environ.get("TEST_VM_CACHE", "0") == "1":
+        self._provision_kwargs = {}
+        if USE_VM_CACHE:
             self._force_nondestructive = True
             # Disk cleanup is still needed between tests
             self.addCleanup(self.removeAllDisks)
             # Save provision kwargs (kickstart_file_name, etc.) and clear
             # provision so MachineCase.setUp() uses the global machine
-            self._provision_kwargs = {}
             if self.provision:
                 for opts in self.provision.values():
                     self._provision_kwargs.update(opts)
                 self.provision = None
         else:
             self._force_nondestructive = False
-            if self.is_nondestructive():
-                self.addCleanup(self.resetUsers)
-                self.addCleanup(self.resetStorage)
-                self.addCleanup(self.resetLanguage)
-                self.addCleanup(self.resetMisc)
-                self.addCleanup(self.resetTimezone)
-                self.addCleanup(self.resetPayloadDNF)
 
         super().setUp()
 
+        if not USE_VM_CACHE and self.is_nondestructive():
+            self.addCleanup(self.resetUsers)
+            self.addCleanup(self.resetStorage)
+            self.addCleanup(self.resetLanguage)
+            self.addCleanup(self.resetMisc)
+            self.addCleanup(self.resetTimezone)
+            self.addCleanup(self.resetPayloadDNF)
+
         # Apply saved provision kwargs to the global machine
-        if os.environ.get("TEST_VM_CACHE") and self._provision_kwargs:
-            m = self.machine
-            if "payload_type" in self._provision_kwargs:
-                m.payload_type = self._provision_kwargs["payload_type"]
-            if "kickstart_file_name" in self._provision_kwargs:
-                m.kickstart_file_name = self._provision_kwargs["kickstart_file_name"]
-                m.pause_at_summary = self._provision_kwargs.get("pause_at_summary", False)
-                m._apply_kickstart_and_restart()
+        if USE_VM_CACHE and self._provision_kwargs:
+            self.machine.apply_provision(**self._provision_kwargs)
 
         m = self.machine
         b = self.browser

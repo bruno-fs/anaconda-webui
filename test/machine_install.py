@@ -241,23 +241,58 @@ class VirtInstallMachine(VirtMachine):
         if self.kickstart_file_name:
             self._apply_kickstart_and_restart()
 
-    def _apply_kickstart_and_restart(self):
-        """Copy kickstart to VM and restart anaconda so it picks it up."""
-        ks_path = os.path.join(WEBUI_TEST_DIR, "kickstarts", self.kickstart_file_name)
-        with open(ks_path) as f:
-            ks_content = f.read()
-        Machine.execute(self, "mkdir -p /run/install/cmdline.d")
-        if self.pause_at_summary:
+    def apply_provision(self, **kwargs):
+        """Apply provision kwargs to a cached VM and restart anaconda.
+
+        Accepts the same kwargs as provision (payload_type, kickstart_file_name,
+        pause_at_summary, etc.).  Ignores construction-time-only options like
+        memory_mb with a log message.
+        """
+        restart_needed = False
+
+        for key in ("memory_mb",):
+            if key in kwargs:
+                print(f"VM provision: ignoring {key}={kwargs.pop(key)} (cannot change after boot)")
+
+        if "payload_type" in kwargs:
+            self.payload_type = kwargs.pop("payload_type")
             Machine.execute(self,
-                "echo inst.pauseatsummary > /run/install/cmdline.d/test.conf")
+                f"cat > /usr/share/anaconda/interactive-defaults.ks << 'ANADEV_EOF'\n"
+                f"{self._payload_source()}\nANADEV_EOF")
+            restart_needed = True
+
+        # Boot options via /run/install/cmdline.d/ — anaconda reads these
+        # on startup the same way as kernel cmdline args.
+        boot_opts = []
+        if kwargs.pop("pause_at_summary", False):
+            boot_opts.append("inst.pauseatsummary")
+        Machine.execute(self, "mkdir -p /run/install/cmdline.d")
+        if boot_opts:
+            Machine.execute(self,
+                f"echo '{' '.join(boot_opts)}' > /run/install/cmdline.d/test.conf")
         else:
             Machine.execute(self, "rm -f /run/install/cmdline.d/test.conf")
-        # Prepend payload source — anaconda reads /run/install/ks.cfg
-        # INSTEAD OF interactive-defaults.ks, so the payload config
-        # that was baked into updates.img is lost.
-        ks_content = self._payload_source() + "\n" + ks_content
-        Machine.execute(self,
-            f"cat > /run/install/ks.cfg << 'ANADEV_EOF'\n{ks_content}\nANADEV_EOF")
+
+        if "kickstart_file_name" in kwargs:
+            self.kickstart_file_name = kwargs.pop("kickstart_file_name")
+            ks_path = os.path.join(WEBUI_TEST_DIR, "kickstarts", self.kickstart_file_name)
+            with open(ks_path) as f:
+                ks_content = f.read()
+            # Prepend payload source — anaconda reads /run/install/ks.cfg
+            # INSTEAD OF interactive-defaults.ks, so the payload config
+            # that was baked into updates.img is lost.
+            ks_content = self._payload_source() + "\n" + ks_content
+            Machine.execute(self,
+                f"cat > /run/install/ks.cfg << 'ANADEV_EOF'\n{ks_content}\nANADEV_EOF")
+            restart_needed = True
+
+        if kwargs:
+            print(f"VM provision: unhandled kwargs: {kwargs}")
+
+        if restart_needed:
+            self._restart_anaconda()
+
+    def _restart_anaconda(self):
         Machine.execute(self, """
             systemctl stop anaconda webui-cockpit-ws 2>/dev/null || true
             kill -9 $(ps -eo pid,args | grep -E 'pyanaconda\\.modules\\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity|anaconda-bus' | grep -v grep | awk '{print $1}') 2>/dev/null || true
@@ -281,7 +316,7 @@ class VirtInstallMachine(VirtMachine):
             except subprocess.CalledProcessError:
                 time.sleep(1)
         else:
-            raise AssertionError("Anaconda did not become ready after kickstart restart")
+            raise AssertionError("Anaconda did not become ready after restart")
 
     def _update_payload_port(self):
         """Rewrite the HTTP port in interactive-defaults.ks inside the VM.
