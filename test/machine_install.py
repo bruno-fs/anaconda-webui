@@ -211,6 +211,7 @@ class VirtInstallMachine(VirtMachine):
                 Machine.wait_boot(self, timeout_sec=10)
                 Machine.execute(self, "mkdir -p /etc/cockpit")
                 self._serve_install_http()
+                self._update_payload_port()
                 return
         except libvirt.libvirtError:
             pass
@@ -235,6 +236,7 @@ class VirtInstallMachine(VirtMachine):
         Machine.execute(self,
             "journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true")
         self._serve_install_http()
+        self._update_payload_port()
 
         if self.kickstart_file_name:
             self._apply_kickstart_and_restart()
@@ -262,6 +264,17 @@ class VirtInstallMachine(VirtMachine):
                 time.sleep(1)
         else:
             raise AssertionError("Anaconda did not become ready after kickstart restart")
+
+    def _update_payload_port(self):
+        """Rewrite the HTTP port in interactive-defaults.ks inside the VM.
+
+        The snapshot was saved with a different HTTP server port.  When
+        anaconda restarts it re-reads interactive-defaults.ks, so the
+        port must match the current server.
+        """
+        Machine.execute(self,
+            f"sed -i 's|http://10\\.0\\.2\\.2:[0-9]*/|http://10.0.2.2:{self.http_install_port}/|g' "
+            "/usr/share/anaconda/interactive-defaults.ks")
 
     def _wait_ssh_quick(self, timeout_sec=30):
         """Fast SSH reconnect for restored VMs — tight polling, no master kill."""
