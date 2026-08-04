@@ -246,11 +246,12 @@ class VirtInstallMachine(VirtMachine):
         ks_path = os.path.join(WEBUI_TEST_DIR, "kickstarts", self.kickstart_file_name)
         with open(ks_path) as f:
             ks_content = f.read()
+        Machine.execute(self, "mkdir -p /run/install/cmdline.d")
         if self.pause_at_summary:
-            Machine.execute(self, """
-                sed -i '/^pause_at_summary/d' /run/anaconda/anaconda.conf
-                sed -i '/\\[Runtime\\]/a pause_at_summary = True' /run/anaconda/anaconda.conf
-            """)
+            Machine.execute(self,
+                "echo inst.pauseatsummary > /run/install/cmdline.d/test.conf")
+        else:
+            Machine.execute(self, "rm -f /run/install/cmdline.d/test.conf")
         # Prepend payload source — anaconda reads /run/install/ks.cfg
         # INSTEAD OF interactive-defaults.ks, so the payload config
         # that was baked into updates.img is lost.
