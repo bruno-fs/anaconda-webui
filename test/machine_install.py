@@ -248,12 +248,16 @@ class VirtInstallMachine(VirtMachine):
             ks_content = f.read()
         if self.pause_at_summary:
             ks_content += "\n%anaconda\npauseatsummary\n%end\n"
+        # Prepend payload source — anaconda reads /run/install/ks.cfg
+        # INSTEAD OF interactive-defaults.ks, so the payload config
+        # that was baked into updates.img is lost.
+        ks_content = self._payload_source() + "\n" + ks_content
         Machine.execute(self,
             f"cat > /run/install/ks.cfg << 'ANADEV_EOF'\n{ks_content}\nANADEV_EOF")
         Machine.execute(self, """
             systemctl stop anaconda webui-cockpit-ws 2>/dev/null || true
             kill -9 $(ps -eo pid,args | grep -E 'pyanaconda\\.modules\\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity|anaconda-bus' | grep -v grep | awk '{print $1}') 2>/dev/null || true
-            rm -f /run/anaconda/bus.address /run/anaconda/backend_ready
+            rm -f /run/anaconda/bus.address /run/anaconda/backend_ready /tmp/dbus-*
             systemctl start anaconda
         """)
         for _ in range(120):

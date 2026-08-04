@@ -114,6 +114,8 @@ class VirtInstallMachineCase(MachineCase):
         # Apply saved provision kwargs to the global machine
         if os.environ.get("TEST_VM_CACHE") and self._provision_kwargs:
             m = self.machine
+            if "payload_type" in self._provision_kwargs:
+                m.payload_type = self._provision_kwargs["payload_type"]
             if "kickstart_file_name" in self._provision_kwargs:
                 m.kickstart_file_name = self._provision_kwargs["kickstart_file_name"]
                 m.pause_at_summary = self._provision_kwargs.get("pause_at_summary", False)
