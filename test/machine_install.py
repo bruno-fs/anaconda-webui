@@ -221,6 +221,10 @@ class VirtInstallMachine(VirtMachine):
             web_address=self.web_address, web_port=self.web_port,
         )
         self._attach_libvirt_domain()
+        # virsh restore creates a transient domain; define it so
+        # virt-xml --update (used by addAllDisks) can modify the XML.
+        xml = self._domain.XMLDesc()
+        self.virt_connection.defineXML(xml)
         self._domain.resume()
 
         self._wait_ssh_quick()
@@ -245,8 +249,8 @@ class VirtInstallMachine(VirtMachine):
         Machine.execute(self,
             f"cat > /run/install/ks.cfg << 'ANADEV_EOF'\n{ks_content}\nANADEV_EOF")
         Machine.execute(self, """
-            systemctl stop anaconda webui-cockpit-ws
-            kill -9 $(ps -eo pid,args | grep -E 'pyanaconda\\.modules\\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity|anaconda-bus' | grep -v grep | awk '{print $1}') 2>/dev/null
+            systemctl stop anaconda webui-cockpit-ws 2>/dev/null || true
+            kill -9 $(ps -eo pid,args | grep -E 'pyanaconda\\.modules\\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity|anaconda-bus' | grep -v grep | awk '{print $1}') 2>/dev/null || true
             rm -f /run/anaconda/bus.address /run/anaconda/backend_ready
             systemctl start anaconda
         """)
