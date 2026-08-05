@@ -42,6 +42,7 @@ class VirtInstallMachineCase(MachineCase):
     report_file = os.path.join(TEST_DIR, "report.json")
     run_on_vm_setups: list[str] = [""]
     vm_setup = ""
+    machine: VirtInstallMachine
 
     def is_nondestructive(self):
         if getattr(self, "_force_nondestructive", False):
@@ -93,13 +94,14 @@ class VirtInstallMachineCase(MachineCase):
             self.skipTest(f"Skipping for VM setup {self.vm_setup}"
                           f", requires VM setups: {self.run_on_vm_setups}")
 
+        super().setUp()
         # With snapshot cache, skip D-Bus resets (snapshot handles clean state)
         # and force all tests to reuse the global machine.
         self._provision_kwargs = {}
         if USE_VM_CACHE:
+            self.machine.start_from_snapshot()
             self._force_nondestructive = True
-            # Disk cleanup is still needed between tests
-            self.addCleanup(self.removeAllDisks)
+            # self.addCleanup(self.removeAllDisks)
             # Save provision kwargs (kickstart_file_name, etc.) and clear
             # provision so MachineCase.setUp() uses the global machine
             if self.provision:
@@ -109,8 +111,6 @@ class VirtInstallMachineCase(MachineCase):
         else:
             self._force_nondestructive = False
 
-        super().setUp()
-
         if not USE_VM_CACHE and self.is_nondestructive():
             self.addCleanup(self.resetUsers)
             self.addCleanup(self.resetStorage)
@@ -119,9 +119,11 @@ class VirtInstallMachineCase(MachineCase):
             self.addCleanup(self.resetTimezone)
             self.addCleanup(self.resetPayloadDNF)
 
+
         # Apply saved provision kwargs to the global machine
         if USE_VM_CACHE and self._provision_kwargs:
             self.machine.apply_provision(**self._provision_kwargs)
+
 
         m = self.machine
         b = self.browser

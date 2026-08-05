@@ -30,6 +30,8 @@ def pytest_addoption(parser):
                      help="Show the browser window during tests")
     parser.addoption("--no-pixel-tests", action="store_true", default=False,
                      help="Skip pixel (screenshot) comparison tests")
+    parser.addoption("--sit", action="store_true", default=False,
+                     help="Sit and wait after test failure")
 
 
 def pytest_configure(config):
@@ -66,7 +68,7 @@ def pytest_sessionstart(session):
         os.makedirs(testlib.opts.attachments, exist_ok=True)
 
     testlib.opts.trace = bool(os.environ.get("TEST_TRACE"))
-    testlib.opts.sit = False
+    testlib.opts.sit = session.config.getoption("--sit", default=False)
     testlib.opts.coverage = False
     testlib.opts.fetch = False
 

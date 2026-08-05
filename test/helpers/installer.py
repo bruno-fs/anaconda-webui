@@ -6,6 +6,7 @@ from collections import UserDict
 import steps
 from step_logger import log_step
 from storage import StorageEncryption
+from testlib import Browser
 from users import create_user
 
 
@@ -82,7 +83,7 @@ class InstallerSteps(UserDict):
 
 
 class Installer():
-    def __init__(self, browser, machine, hidden_steps=None, scenario=None):
+    def __init__(self, browser: Browser, machine, hidden_steps=None, scenario=None):
         self.browser = browser
         self.machine = machine
         self.steps = InstallerSteps(hidden_steps, scenario, machine)
