@@ -112,7 +112,9 @@ class VirtInstallMachine(VirtMachine):
         Idempotent: returns the existing port without spawning a second server.
         """
         if self.http_install_server is not None:
-            return self.http_install_port
+            if self.http_install_server.poll() is None:
+                return self.http_install_port
+            self.http_install_server = None
         port = self._get_free_port()
         self.http_install_server = subprocess.Popen([
             "python3", "-m", "http.server", "-d", ROOT_DIR, str(port),
