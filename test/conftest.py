@@ -6,6 +6,7 @@ sets up testlib.opts, and pre-creates a global machine for nondestructive tests.
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ sys.path.insert(0, str(ROOT_DIR / "bots"))
 os.environ.setdefault("TEST_OS", "fedora-rawhide-boot")
 os.environ.setdefault("TEST_VM_CACHE", "1")
 os.environ.setdefault("TEST_ATTACHMENTS", str(ROOT_DIR / "tmp" / "testlogs"))
+os.environ.setdefault("TEST_HTTP_PORT", "8100")
 os.environ["TEST_ALLOW_NOLOGIN"] = "true"
 
 
@@ -83,6 +85,31 @@ def pytest_sessionstart(session):
     attach(os.path.join(TESTLIB_DIR, "common/link-patterns.json"))
 
 
+
+def pytest_keyboard_interrupt(excinfo):
+    subprocess.run(["pkill", "-f", "chromedriver"], check=False)
+    from testlib import MachineCase
+    if MachineCase.global_machine:
+        MachineCase.global_machine.kill()
+        MachineCase.global_machine = None
+    os._exit(2)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_teardown(item):
+    yield
+    attachments = os.environ.get("TEST_ATTACHMENTS")
+    if not attachments:
+        return
+    import glob
+    import shutil
+    for pattern in ("Test*.png", "Test*.html", "Test*.js.log", "Test*.log.gz"):
+        for f in glob.glob(pattern):
+            dest = os.path.join(attachments, os.path.basename(f))
+            if not os.path.exists(dest):
+                shutil.move(f, dest)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _global_machine(tmp_path_factory, worker_id):
     """Pre-create the global machine so all nondestructive tests share it.
@@ -130,4 +157,5 @@ def _global_machine(tmp_path_factory, worker_id):
 
     yield machine
 
-    machine.kill()
+    if MachineCase.global_machine:
+        machine.kill()

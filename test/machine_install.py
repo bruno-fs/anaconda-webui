@@ -52,7 +52,7 @@ class VirtInstallMachine(VirtMachine):
     def cache(self):
         return VMSnapshotCache()
 
-    @cached_property
+    @property
     def cache_key(self):
         update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
 
@@ -109,8 +109,13 @@ class VirtInstallMachine(VirtMachine):
     def _serve_install_http(self):
         """Serve ``ROOT_DIR`` (updates.img, ``test/kickstarts/``, payload tree under ``tmp/``).
 
-        Idempotent: returns the existing port without spawning a second server.
+        If TEST_HTTP_PORT is set, uses that external server.
+        Otherwise spawns a local server (idempotent).
         """
+        external_port = os.environ.get("TEST_HTTP_PORT")
+        if external_port:
+            self.http_install_port = int(external_port)
+            return self.http_install_port
         if self.http_install_server is not None:
             if self.http_install_server.poll() is None:
                 return self.http_install_port
