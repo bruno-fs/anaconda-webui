@@ -45,6 +45,7 @@ class VirtInstallMachine(VirtMachine):
         self.pause_at_summary = kwargs.pop("pause_at_summary", False)
         self.payload_type = kwargs.pop("payload_type", "liveimg".lower())
         kwargs.setdefault("memory_mb", 4096)
+        self._cached_vm_needs_restore = False
         super().__init__(image, **kwargs)
 
     @cached_property
@@ -151,13 +152,6 @@ class VirtInstallMachine(VirtMachine):
             # pack the updates.img again and replace the original one
             os.system(f"cd {tmp_dir} && find . | cpio -c -o | gzip -9cv > {updates_image_edited}")
 
-    def restore_from_snapshot(self):
-        self.cache.restore_snapshot(self.cache_key, self.label)
-        self._attach_libvirt_domain()
-        self._domain.resume()
-        self.wait_boot(timeout_sec=30)
-
-
     def start(self):
         self.is_efi = os.environ.get("TEST_FIRMWARE", "efi") == "efi"
         self.os = os.environ.get("TEST_OS", "fedora-rawhide-boot").split("-boot")[0]
@@ -194,6 +188,7 @@ class VirtInstallMachine(VirtMachine):
                 self.label, self.cache_key, self.label, iso_path,
                 self.ssh_address, self.ssh_port, self.web_address, self.web_port,
             )
+            self.start_from_snapshot()
 
     def _get_iso_path(self):
         if compose := os.environ.get("TEST_COMPOSE"):
@@ -225,6 +220,11 @@ class VirtInstallMachine(VirtMachine):
         self.virt_connection.defineXML(xml)
         self._domain.resume()
 
+        # restore the default values
+        self.kickstart_file_name = None
+        self.pause_at_summary = False
+        self.payload_type = "liveimg"
+
         self._wait_ssh_quick()
         self.execute(
             "mount --bind /usr/share/cockpit /usr/local/share/cockpit 2>/dev/null || true")
@@ -248,6 +248,7 @@ class VirtInstallMachine(VirtMachine):
         for key in ("memory_mb",):
             if key in kwargs:
                 print(f"VM provision: ignoring {key}={kwargs.pop(key)} (cannot change after boot)")
+
 
         if "payload_type" in kwargs:
             self.payload_type = kwargs.pop("payload_type")

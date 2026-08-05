@@ -45,9 +45,8 @@ class VirtInstallMachineCase(MachineCase):
     machine: VirtInstallMachine
 
     def is_nondestructive(self):
-        # when using VM cache, all tests are "nondestructive"
         if USE_VM_CACHE:
-            return True
+            return False
         return super().is_nondestructive()
 
     def new_browser(self, **kwargs):
@@ -104,9 +103,6 @@ class VirtInstallMachineCase(MachineCase):
 
         super().setUp()
 
-        if USE_VM_CACHE:
-            self.machine.start_from_snapshot()
-
         if self.is_nondestructive():
             self.addCleanup(self.resetUsers)
             self.addCleanup(self.resetStorage)
@@ -115,11 +111,15 @@ class VirtInstallMachineCase(MachineCase):
             self.addCleanup(self.resetTimezone)
             self.addCleanup(self.resetPayloadDNF)
 
-
-        # Apply saved provision kwargs to the global machine
-        if USE_VM_CACHE and self._provision_kwargs:
-            self.machine.apply_provision(**self._provision_kwargs)
-
+        if USE_VM_CACHE:
+            if self.machine._cached_vm_needs_restore:
+                self.machine.start_from_snapshot()
+            else:
+                # first time running. mark next setUp to restore
+                self.machine._cached_vm_needs_restore = True
+            # Apply saved provision kwargs to the global machine
+            if self._provision_kwargs:
+                self.machine.apply_provision(**self._provision_kwargs)
 
         m = self.machine
         b = self.browser
