@@ -52,11 +52,8 @@ class VirtInstallMachine(VirtMachine):
     def cache(self):
         return VMSnapshotCache()
 
-    @property
-    def cache_key(self):
+    def compute_cache_key(self, extra_boot_args=""):
         update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
-
-        extra_boot_args = os.environ.get("TEST_EXTRA_BOOT_ARGS", "")
         return self.cache.compute_cache_key(
                 updates_img=update_img_global_file,
                 firmware="efi" if self.is_efi else "bios",
@@ -159,7 +156,7 @@ class VirtInstallMachine(VirtMachine):
             # pack the updates.img again and replace the original one
             os.system(f"cd {tmp_dir} && find . | cpio -c -o | gzip -9cv > {updates_image_edited}")
 
-    def start(self):
+    def start(self, extra_boot_args=""):
         self.is_efi = os.environ.get("TEST_FIRMWARE", "efi") == "efi"
         self.os = os.environ.get("TEST_OS", "fedora-rawhide-boot").split("-boot")[0]
 
@@ -177,34 +174,36 @@ class VirtInstallMachine(VirtMachine):
             and not self.is_live()
         )
 
-        if use_cache and self.cache.has_snapshot(self.cache_key, self.label):
+        cache_key = self.compute_cache_key(extra_boot_args)
+
+        if use_cache and self.cache.has_snapshot(cache_key, self.label):
             try:
-                self.start_from_snapshot()
+                self.start_from_snapshot(extra_boot_args)
                 return
             except Exception as e:
                 print(f"VM snapshot: restore failed ({e}), falling back to fresh boot",
                         file=sys.stderr)
-                self.cache.delete_snapshot(self.cache_key, self.label)
-                    # Fall through to fresh boot
+                self.cache.delete_snapshot(cache_key, self.label)
 
         iso_path = self._get_iso_path()
         self._start_fresh(update_img_global_file, iso_path)
 
         if use_cache:
             self.cache.save_snapshot(
-                self.label, self.cache_key, self.label, iso_path,
+                self.label, cache_key, self.label, iso_path,
                 self.ssh_address, self.ssh_port, self.web_address, self.web_port,
             )
-            self.start_from_snapshot()
+            self.start_from_snapshot(extra_boot_args)
 
     def _get_iso_path(self):
         if compose := os.environ.get("TEST_COMPOSE"):
             return f"{os.getcwd()}/test/images/{compose}.iso"
         return f"{os.getcwd()}/bots/images/{self.image}"
 
-    def start_from_snapshot(self):
-        meta = self.cache.get_metadata(self.cache_key, self.label)
-        print(f"VM snapshot: restoring from cache ({self.cache_key}/{self.label})")
+    def start_from_snapshot(self, extra_boot_args=""):
+        cache_key = self.compute_cache_key(extra_boot_args)
+        meta = self.cache.get_metadata(cache_key, self.label)
+        print(f"VM snapshot: restoring from cache ({cache_key}/{self.label})")
 
         # Kill any running domain so we restore from a clean snapshot
         try:
@@ -216,7 +215,7 @@ class VirtInstallMachine(VirtMachine):
             pass
 
         self.cache.restore_snapshot(
-            self.cache_key, self.label,
+            cache_key, self.label,
             ssh_address=self.ssh_address, ssh_port=self.ssh_port,
             web_address=self.web_address, web_port=self.web_port,
         )
@@ -252,7 +251,7 @@ class VirtInstallMachine(VirtMachine):
         """
         restart_needed = False
 
-        for key in ("memory_mb",):
+        for key in ("memory_mb", "extra_boot_args"):
             if key in kwargs:
                 print(f"VM provision: ignoring {key}={kwargs.pop(key)} (cannot change after boot)")
 

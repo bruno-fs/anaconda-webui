@@ -97,35 +97,30 @@ class VirtInstallMachineCase(MachineCase):
             "bootopts-net1": "net.ifnames.prefix=net ip=net0:dhcp",
         }
         self.vm_setup = os.environ.get("TEST_VM_SETUP", "")
+        self._provision_kwargs = {}
         if USE_VM_CACHE and not self.vm_setup:
             for setup in self.run_on_vm_setups:
                 if setup in VM_SETUP_BOOT_ARGS:
                     self.vm_setup = setup
-                    os.environ["TEST_VM_SETUP"] = setup
-                    os.environ["TEST_EXTRA_BOOT_ARGS"] = VM_SETUP_BOOT_ARGS[setup]
-                    self.addCleanup(os.environ.pop, "TEST_VM_SETUP", None)
-                    self.addCleanup(os.environ.pop, "TEST_EXTRA_BOOT_ARGS", None)
+                    self._provision_kwargs["extra_boot_args"] = VM_SETUP_BOOT_ARGS[setup]
                     break
         if self.vm_setup not in self.run_on_vm_setups:
             self.skipTest(f"Skipping for VM setup {self.vm_setup}"
                           f", requires VM setups: {self.run_on_vm_setups}")
 
-        self._provision_kwargs = {}
         if USE_VM_CACHE:
             if self.provision:
                 for opts in self.provision.values():
                     self._provision_kwargs.update(opts)
                 self.provision = None
-
         super().setUp()
 
         if USE_VM_CACHE:
-            if self.machine._cached_vm_needs_restore:
-                self.machine.start_from_snapshot()
+            extra_boot_args = self._provision_kwargs.pop("extra_boot_args", "")
+            if self.machine._cached_vm_needs_restore or self._provision_kwargs or extra_boot_args:
+                self.machine.start_from_snapshot(extra_boot_args)
             else:
-                # first time running. mark next setUp to restore
                 self.machine._cached_vm_needs_restore = True
-            # Apply saved provision kwargs to the global machine
             if self._provision_kwargs:
                 self.machine.apply_provision(**self._provision_kwargs)
 
