@@ -42,11 +42,20 @@ class VirtInstallMachineCase(MachineCase):
     report_file = os.path.join(TEST_DIR, "report.json")
     run_on_vm_setups: list[str] = [""]
     vm_setup = ""
+    machine: VirtInstallMachine
 
     def is_nondestructive(self):
         if getattr(self, "_force_nondestructive", False):
             return True
         return super().is_nondestructive()
+
+    def nonDestructiveSetup(self):
+        if not USE_VM_CACHE:
+            super().nonDestructiveSetup()
+
+    def _terminate_sessions(self):
+        if not USE_VM_CACHE:
+            super()._terminate_sessions()
 
     def new_browser(self, **kwargs):
         b = super().new_browser(**kwargs)
@@ -98,7 +107,6 @@ class VirtInstallMachineCase(MachineCase):
         self._provision_kwargs = {}
         if USE_VM_CACHE:
             self._force_nondestructive = True
-            # Disk cleanup is still needed between tests
             self.addCleanup(self.removeAllDisks)
             # Save provision kwargs (kickstart_file_name, etc.) and clear
             # provision so MachineCase.setUp() uses the global machine
@@ -120,8 +128,15 @@ class VirtInstallMachineCase(MachineCase):
             self.addCleanup(self.resetPayloadDNF)
 
         # Apply saved provision kwargs to the global machine
-        if USE_VM_CACHE and self._provision_kwargs:
-            self.machine.apply_provision(**self._provision_kwargs)
+        if USE_VM_CACHE:
+            if self.machine._cached_vm_needs_restore:
+                self.machine._start_from_snapshot()
+            self.machine._cached_vm_needs_restore = True
+            if self._provision_kwargs:
+                self.machine.apply_provision(**self._provision_kwargs)
+                # apply_provision restarts cockpit-ws, invalidating the browser session
+                self.browser.kill()
+                self.browser = self.new_browser()
 
         m = self.machine
         b = self.browser
@@ -355,6 +370,17 @@ class VirtInstallMachineCase(MachineCase):
             f.truncate()
 
     def tearDown(self):
+        # Check if VM is still reachable before trying SSH-heavy teardown
+        if USE_VM_CACHE and hasattr(self, 'machine'):
+            try:
+                dom = self.machine.virt_connection.lookupByName(self.machine.label)
+                if not dom.isActive():
+                    print(f"VM {self.machine.label} is not running, skipping SSH teardown", file=sys.stderr)
+                    self.machine.ssh_reachable = False
+            except Exception as e:
+                print(f"VM {self.machine.label} not found ({e}), skipping SSH teardown", file=sys.stderr)
+                self.machine.ssh_reachable = False
+
         if not self.installation_finished:
             self.downloadLogs()
 

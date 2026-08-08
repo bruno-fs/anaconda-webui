@@ -9,7 +9,10 @@ import socket
 import subprocess
 import sys
 import time
+from functools import cached_property
 from tempfile import TemporaryDirectory
+
+from vm_snapshot_cache import VMSnapshotCache
 
 WEBUI_TEST_DIR = os.path.dirname(__file__)
 ROOT_DIR = os.path.dirname(WEBUI_TEST_DIR)
@@ -42,7 +45,22 @@ class VirtInstallMachine(VirtMachine):
         self.pause_at_summary = kwargs.pop("pause_at_summary", False)
         self.payload_type = kwargs.pop("payload_type", "liveimg".lower())
         kwargs.setdefault("memory_mb", 4096)
+        self._cached_vm_needs_restore = False
         super().__init__(image, **kwargs)
+
+    @cached_property
+    def cache(self):
+        return VMSnapshotCache()
+
+    def compute_cache_key(self):
+        update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
+        return self.cache.compute_cache_key(
+                updates_img=update_img_global_file,
+                firmware="efi" if self.is_efi else "bios",
+                memory_mb=self.memory_mb,
+                image=self.image,
+            )
+
 
     def _attach_libvirt_domain(self, timeout_sec=120):
         conn = self.virt_connection
@@ -51,18 +69,41 @@ class VirtInstallMachine(VirtMachine):
         while time.monotonic() < deadline:
             try:
                 dom = conn.lookupByName(self.label)
-                if not dom.isActive():
-                    raise AssertionError(
-                        f"libvirt domain {self.label!r} exists but is not running "
-                        "(QEMU may have crashed — check memory or virt-install errors)"
-                    )
-                self._domain = dom
-                return
+                if dom.isActive():
+                    self._domain = dom
+                    return
             except libvirt.libvirtError:
-                time.sleep(0.5)
+                pass
+            time.sleep(0.5)
+        try:
+            dom = conn.lookupByName(self.label)
+            if not dom.isActive():
+                raise AssertionError(
+                    f"libvirt domain {self.label!r} exists but is not running "
+                    "(QEMU may have crashed — check memory or virt-install errors)"
+                )
+        except libvirt.libvirtError:
+            pass
         raise AssertionError(
             f"libvirt domain {self.label!r} did not appear within {timeout_sec}s"
         )
+
+    def _check_vm_is_running(self):
+        """Check if the VM domain is still active. If not, mark SSH as unreachable."""
+        try:
+            dom = self.virt_connection.lookupByName(self.label)
+            if not dom.isActive():
+                self.ssh_reachable = False
+                return False
+        except Exception:
+            self.ssh_reachable = False
+            return False
+        return True
+
+    def execute(self, *args, **kwargs):
+        if not self.ssh_reachable:
+            raise subprocess.CalledProcessError(255, "ssh", output=b"VM is not reachable")
+        return super().execute(*args, **kwargs)
 
     def _execute(self, cmd):
         return subprocess.check_call(cmd, stderr=subprocess.STDOUT, shell=True)
@@ -88,6 +129,10 @@ class VirtInstallMachine(VirtMachine):
 
         Idempotent: returns the existing port without spawning a second server.
         """
+        external_port = os.environ.get("TEST_HTTP_PORT")
+        if external_port:
+            self.http_install_port = int(external_port)
+            return self.http_install_port
         if self.http_install_server is not None:
             return self.http_install_port
         port = self._get_free_port()
@@ -148,27 +193,16 @@ class VirtInstallMachine(VirtMachine):
         )
 
         if use_cache:
-            from vm_snapshot_cache import VMSnapshotCache
+            cache_key = self.compute_cache_key()
 
-            cache = VMSnapshotCache()
-            extra_boot_args = os.environ.get("TEST_EXTRA_BOOT_ARGS", "")
-            cache_key = cache.compute_cache_key(
-                updates_img=update_img_global_file,
-                firmware="efi" if self.is_efi else "bios",
-                payload_type=self.payload_type,
-                memory_mb=self.memory_mb,
-                image=self.image,
-                extra_boot_args=extra_boot_args,
-            )
-
-            if cache.has_snapshot(cache_key, self.label):
+            if self.cache.has_snapshot(cache_key, self.label):
                 try:
-                    self._start_from_snapshot(cache, cache_key)
+                    self._start_from_snapshot()
                     return
                 except Exception as e:
                     print(f"VM snapshot: restore failed ({e}), falling back to fresh boot",
                           file=sys.stderr)
-                    cache.delete_snapshot(cache_key, self.label)
+                    self.cache.delete_snapshot(cache_key, self.label)
                     # Fall through to fresh boot
 
         iso_path = self._get_iso_path()
@@ -176,70 +210,104 @@ class VirtInstallMachine(VirtMachine):
 
         if use_cache:
             try:
-                cache.save_snapshot(
+                self.cache.save_snapshot(
                     self.label, cache_key, self.label, iso_path,
                     self.ssh_address, self.ssh_port, self.web_address, self.web_port,
                 )
                 # VM was suspended by virsh save — restore it to continue the test
-                cache.restore_snapshot(cache_key, self.label)
+                self.cache.restore_snapshot(cache_key, self.label)
                 self._attach_libvirt_domain()
                 self._domain.resume()
-                Machine.wait_boot(self, timeout_sec=30)
+                self.wait_boot(timeout_sec=30)
             except Exception as e:
-                print(f"VM snapshot: save failed ({e}), continuing with fresh boot",
-                      file=sys.stderr)
-                cache.delete_snapshot(cache_key, self.label)
-                # The VM was destroyed by virsh save, need a fresh one
-                self._start_fresh(update_img_global_file, iso_path)
+                import traceback
+                print(f"VM snapshot: save/restore failed for {self.label}:", file=sys.stderr)
+                traceback.print_exc(file=sys.stderr)
+                raise
 
     def _get_iso_path(self):
         if compose := os.environ.get("TEST_COMPOSE"):
             return f"{os.getcwd()}/test/images/{compose}.iso"
         return f"{os.getcwd()}/bots/images/{self.image}"
 
-    def _start_from_snapshot(self, cache, cache_key):
-        meta = cache.get_metadata(cache_key, self.label)
-        print(f"VM snapshot: restoring from cache ({cache_key}/{self.label})")
+    def _start_from_snapshot(self):
+        # Reset attributes before computing cache key — a previous test's
+        # apply_provision may have changed payload_type etc.
+        self.kickstart_file_name = None
+        self.pause_at_summary = False
+        self.ssh_reachable = True
+        self.payload_type = "liveimg"
 
-        # Check if domain is already running (e.g. reused across tests)
+        cache_key = self.compute_cache_key()
+
+        if not self.cache.has_snapshot(cache_key, self.label):
+            print(f"VM snapshot: no cache for {cache_key}/{self.label}, creating...", file=sys.stderr)
+            self._fresh_boot_and_cache(cache_key)
+
         try:
-            conn = self.virt_connection
-            dom = conn.lookupByName(meta["domain_name"])
+            self._restore_and_wait(cache_key)
+        except Exception as e:
+            print(f"VM snapshot: restore failed ({e}), recreating...", file=sys.stderr)
+            self.cache.delete_snapshot(cache_key, self.label)
+            self._fresh_boot_and_cache(cache_key)
+            self._restore_and_wait(cache_key)
+
+    def _fresh_boot_and_cache(self, cache_key):
+        """Boot a fresh VM and save a snapshot for future restores.
+
+        Serialized with a file lock to prevent contention when multiple workers
+        need fresh boots simultaneously.
+        """
+        import filelock
+        lock_path = os.path.join(self.cache.cache_dir, "vm-boot.lock")
+        with filelock.FileLock(lock_path):
+            iso_path = self._get_iso_path()
+            update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
+            self._start_fresh(update_img_global_file, iso_path)
+            self.cache.save_snapshot(
+                self.label, cache_key, self.label, iso_path,
+                self.ssh_address, self.ssh_port, self.web_address, self.web_port,
+            )
+
+    def _restore_and_wait(self, cache_key):
+        """Destroy any existing domain, restore from snapshot, and wait for SSH."""
+        print(f"VM snapshot: restoring from cache ({cache_key}/{self.label})", file=sys.stderr)
+
+        # Stop any running domain — virsh restore works on defined+stopped domains
+        try:
+            dom = self.virt_connection.lookupByName(self.label)
             if dom.isActive():
-                self._domain = dom
-                self.label = meta["domain_name"]
-                Machine.wait_boot(self, timeout_sec=10)
-                Machine.execute(self, "mkdir -p /etc/cockpit")
-                self._serve_install_http()
-                self._update_payload_port()
-                return
+                dom.destroy()
         except libvirt.libvirtError:
             pass
 
-        cache.restore_snapshot(
+        self.cache.restore_snapshot(
             cache_key, self.label,
             ssh_address=self.ssh_address, ssh_port=self.ssh_port,
             web_address=self.web_address, web_port=self.web_port,
         )
         self._attach_libvirt_domain()
-        # virsh restore creates a transient domain; define it so
-        # virt-xml --update (used by addAllDisks) can modify the XML.
-        xml = self._domain.XMLDesc()
-        self.virt_connection.defineXML(xml)
         self._domain.resume()
 
+        # Verify VM is actually running after resume
+        state, _ = self._domain.state()
+        if state != libvirt.VIR_DOMAIN_RUNNING:
+            state_names = {0: "nostate", 1: "running", 2: "blocked", 3: "paused",
+                           4: "shutdown", 5: "shutoff", 6: "crashed", 7: "suspended"}
+            raise RuntimeError(
+                f"VM {self.label} failed to resume: state={state_names.get(state, state)}")
+
+        self.wait_boot(timeout_sec=30)
         self._wait_ssh_quick()
-        Machine.execute(self,
+        self.execute(
             "mount --bind /usr/share/cockpit /usr/local/share/cockpit 2>/dev/null || true")
-        Machine.execute(self,
+        self.execute(
             "mkdir -p /etc/cockpit")
-        Machine.execute(self,
+        self.execute(
             "journalctl --rotate && journalctl --vacuum-time=1s 2>/dev/null || true")
         self._serve_install_http()
         self._update_payload_port()
 
-        if self.kickstart_file_name:
-            self._apply_kickstart_and_restart()
 
     def apply_provision(self, **kwargs):
         """Apply provision kwargs to a cached VM and restart anaconda.
@@ -293,27 +361,19 @@ class VirtInstallMachine(VirtMachine):
             self._restart_anaconda()
 
     def _restart_anaconda(self):
-        Machine.execute(self, """
+        self.execute("""
             systemctl stop anaconda webui-cockpit-ws 2>/dev/null || true
             kill -9 $(ps -eo pid,args | grep -E 'pyanaconda\\.modules\\.|start-module|/usr/bin/anaconda|gnome-kiosk|run-in-new-session|webui-desktop|sleep.infinity|anaconda-bus' | grep -v grep | awk '{print $1}') 2>/dev/null || true
-            rm -f /run/anaconda/bus.address /run/anaconda/backend_ready /run/anaconda/installation-error-msg /tmp/dbus-*
-            umount -lf /mnt/sysroot /mnt/sysimage 2>/dev/null || true
-            swapoff -a 2>/dev/null || true
-            vgremove -ff -y $(vgs --noheadings -o vg_name 2>/dev/null) 2>/dev/null || true
-            pvremove -ff -y $(pvs --noheadings -o pv_name 2>/dev/null) 2>/dev/null || true
-            dmsetup remove_all 2>/dev/null || true
-            for disk in /dev/vd[a-z]; do
-                [ -b "$disk" ] && wipefs -af "$disk" 2>/dev/null && partprobe "$disk" 2>/dev/null
-            done
-            udevadm settle 2>/dev/null || true
-            tmux kill-server 2>/dev/null || true
-            systemctl start anaconda
+            rm -f /run/anaconda/bus.address /run/anaconda/backend_ready /run/anaconda/installation-error-msg
         """)
-        for _ in range(120):
+        self.execute("systemctl start anaconda")
+        for _ in range(60):
+            if not self._check_vm_is_running():
+                raise AssertionError(f"VM {self.label} died during anaconda restart")
             try:
-                Machine.execute(self, "test -f /run/anaconda/backend_ready")
+                self.execute("test -f /run/anaconda/backend_ready", timeout=5)
                 break
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, RuntimeError):
                 time.sleep(1)
         else:
             raise AssertionError("Anaconda did not become ready after restart")
@@ -325,7 +385,7 @@ class VirtInstallMachine(VirtMachine):
         anaconda restarts it re-reads interactive-defaults.ks, so the
         port must match the current server.
         """
-        Machine.execute(self,
+        self.execute(
             f"sed -i 's|http://10\\.0\\.2\\.2:[0-9]*/|http://10.0.2.2:{self.http_install_port}/|g' "
             "/usr/share/anaconda/interactive-defaults.ks")
 

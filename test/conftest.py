@@ -5,10 +5,15 @@ without modifications. Generates .py symlinks for files without extensions,
 sets up testlib.opts, and pre-creates a global machine for nondestructive tests.
 """
 
+import json
 import os
+import re
+import subprocess
 import sys
 from pathlib import Path
+from typing import TextIO
 
+import libvirt
 import pytest
 
 # Set up PYTHONPATH for test imports
@@ -20,16 +25,98 @@ sys.path.insert(0, str(ROOT_DIR / "bots"))
 os.environ.setdefault("TEST_OS", "fedora-rawhide-boot")
 os.environ.setdefault("TEST_VM_CACHE", "1")
 os.environ.setdefault("TEST_ATTACHMENTS", str(ROOT_DIR / "tmp" / "testlogs"))
+os.environ.setdefault("TEST_HTTP_PORT", "8100")
 os.environ["TEST_ALLOW_NOLOGIN"] = "true"
 
 
 def pytest_addoption(parser):
-    parser.addoption("--disable-vm-cache", action="store_true", default=False,
-                     help="Disable VM snapshot cache (fresh boot for each test)")
-    parser.addoption("--show-browser", action="store_true", default=False,
-                     help="Show the browser window during tests")
-    parser.addoption("--no-pixel-tests", action="store_true", default=False,
-                     help="Skip pixel (screenshot) comparison tests")
+    parser.addoption("--disable-vm-cache", action="store_true", default=False, help="Disable VM snapshot cache (fresh boot for each test)")
+    parser.addoption("--show-browser", action="store_true", default=False, help="Show the browser window during tests")
+    parser.addoption("--no-pixel-tests", action="store_true", default=False, help="Skip pixel (screenshot) comparison tests")
+    parser.addoption("--sit", action="store_true", default=False, help="Sit and wait after test failure")
+    parser.addoption("--tap", action="store_true", default=False, help="Stream TAP output to stdout")
+
+
+class TapReporter:
+    """Stream TAP v14 output with YAML diagnostics.
+
+    Based on pytest-tapreporter by Allison Karlitskaya.
+    https://github.com/allisonkarlitskaya/pytest-tapreporter
+    """
+
+    def __init__(self, config: pytest.Config, output: TextIO):
+        self.config = config
+        self.output = output
+        self.plan_printed = False
+        self.reported: set[str] = set()
+
+    def print_plan(self, n_tests: int) -> None:
+        if not self.plan_printed:
+            print(f"1..{n_tests}", file=self.output)
+            self.output.flush()
+            self.plan_printed = True
+
+    def report(self, report: pytest.TestReport, status: str, directive: str = "", directive_reason: str = "", **kwargs: str) -> None:
+        line = f"{status} {len(self.reported)} - {report.nodeid}"
+        if directive:
+            line += f" # {directive}"
+            if directive_reason:
+                line += f" {directive_reason}"
+
+        lines = [line]
+
+        try:
+            kwargs["message"] = report.longrepr.reprcrash.message
+            kwargs["traceback"] = report.longreprtext
+        except AttributeError:
+            pass
+
+        if kwargs:
+            lines.append("  ---")
+            for key, value in kwargs.items():
+                if "\n" in value:
+                    lines.append(f"  {key}: |+")
+                    lines.extend(f"    {ln}" for ln in value.splitlines())
+                elif value:
+                    lines.append(f"  {key}: {json.dumps(value)}")
+            lines.append("  ...")
+
+        print(*lines, sep="\n", file=self.output, flush=True)
+
+    @pytest.hookimpl()
+    def pytest_runtestloop(self, session: pytest.Session) -> None:
+        self.print_plan(session.testscollected)
+
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_xdist_node_collection_finished(self, node, ids):
+        del node
+        self.print_plan(len(ids))
+
+    @pytest.hookimpl()
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        category, _letter, _verbose = self.config.hook.pytest_report_teststatus(report=report, config=self.config)
+
+        if category and report.nodeid not in self.reported:
+            self.reported.add(report.nodeid)
+        else:
+            return
+
+        if category == "passed":
+            self.report(report, "ok")
+        elif category == "skipped":
+            assert isinstance(report.longrepr, tuple)
+            reason = re.sub(r"^Skipped:? ?", "", report.longrepr[2])
+            self.report(report, "ok", "SKIP", reason)
+        elif category == "xfailed":
+            assert isinstance(report.wasxfail, str)
+            reason = re.sub(r"^reason:? ?", "", report.wasxfail)
+            self.report(report, "not ok", "TODO", reason)
+        elif category == "xpassed":
+            assert isinstance(report.wasxfail, str)
+            reason = re.sub(r"^reason:? ?", "", report.wasxfail)
+            self.report(report, "ok", "TODO", reason)
+        else:
+            self.report(report, "not ok")
 
 
 def pytest_configure(config):
@@ -39,8 +126,11 @@ def pytest_configure(config):
         os.environ["TEST_SHOW_BROWSER"] = "1"
     if config.getoption("--no-pixel-tests", default=False):
         os.environ["TEST_NO_PIXEL_TESTS"] = "1"
+    if config.getoption("--tap", default=False):
+        original_stdout = sys.stdout
+        config.pluginmanager.register(TapReporter(config, original_stdout), "tapreporter")
+        sys.stdout = open("/dev/null", "w")
 
-    """Create .py symlinks for check-* files so pytest can collect them."""
     for check_file in TEST_DIR.glob("check-*"):
         if check_file.suffix or check_file.is_dir():
             continue
@@ -48,12 +138,6 @@ def pytest_configure(config):
         if not link.exists():
             link.symlink_to(check_file.name)
 
-
-# def pytest_unconfigure(config):
-#     """Clean up .py symlinks."""
-#     for link in TEST_DIR.glob("check_*.py"):
-#         if link.is_symlink():
-#             link.unlink()
 
 
 
@@ -66,7 +150,7 @@ def pytest_sessionstart(session):
         os.makedirs(testlib.opts.attachments, exist_ok=True)
 
     testlib.opts.trace = bool(os.environ.get("TEST_TRACE"))
-    testlib.opts.sit = False
+    testlib.opts.sit = session.config.getoption("--sit", default=False)
     testlib.opts.coverage = False
     testlib.opts.fetch = False
 
@@ -79,6 +163,43 @@ def pytest_sessionstart(session):
 
     attach(os.path.join(TESTLIB_DIR, "common/pixeldiff.html"))
     attach(os.path.join(TESTLIB_DIR, "common/link-patterns.json"))
+
+
+def _kill_pending_vms():
+    conn = libvirt.open("qemu:///session")
+    domains = conn.listAllDomains()
+    test_dom_regex = re.compile(r"anaconda-test-.*-w\d+$")
+    for dom in domains:
+        if test_dom_regex.match(dom.name()):
+            if dom.isActive():
+                dom.destroy()
+            # try:
+            #     dom.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
+            # except libvirt.libvirtError:
+                # dom.undefine()
+    conn.close()
+
+
+def pytest_keyboard_interrupt(excinfo):
+    subprocess.run(["pkill", "-f", "chromedriver"], check=False)
+    _kill_pending_vms()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_teardown(item):
+    yield
+    attachments = os.environ.get("TEST_ATTACHMENTS")
+    if not attachments:
+        return
+    import glob
+    import shutil
+
+    for pattern in ("Test*.png", "Test*.html", "Test*.js.log", "Test*.log.gz"):
+        for f in glob.glob(pattern):
+            dest = os.path.join(attachments, os.path.basename(f))
+            if not os.path.exists(dest):
+                shutil.move(f, dest)
+    # _kill_pending_vms()
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -108,11 +229,13 @@ def _global_machine(tmp_path_factory, worker_id):
     try:
         dom = conn.lookupByName(label)
         if dom.isActive():
-            pytest.exit(
-                f"Domain '{label}' is already running. "
-                "Stop it before running tests (anadev test clean).",
-                returncode=1,
-            )
+            dom.destroy()
+        # if dom.hasManagedSaveImage(0):
+        #     dom.managedSaveRemove(0)
+        # try:
+        #     dom.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
+        # except libvirt.libvirtError:
+        #     dom.undefine()
     except libvirt.libvirtError:
         pass
     finally:
@@ -127,5 +250,3 @@ def _global_machine(tmp_path_factory, worker_id):
     MachineCase.global_machine = machine
 
     yield machine
-
-    machine.kill()

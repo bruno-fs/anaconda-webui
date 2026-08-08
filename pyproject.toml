@@ -115,3 +115,9 @@ ignore_names = [
    "_testWindowsSingleDisk_partition_disk",
    "_testWindowsSingleDiskHomeReuse_partition_disk",
 ]
+
+[dependency-groups]
+dev = [
+    "argcomplete>=3.7.2",
+    "filelock>=3.32.2",
+]
