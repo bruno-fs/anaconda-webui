@@ -29,9 +29,14 @@ class VMSnapshotCache:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def compute_cache_key(self, updates_img, firmware,
-                          memory_mb, image):
+                          memory_mb, image, **provision_kwargs):
         img_hash = _sha256_file(updates_img)
-        identity = f"{img_hash}:{firmware}:{memory_mb}:{image}"
+        parts = [f"{img_hash}:{firmware}:{memory_mb}:{image}"]
+        for k in sorted(provision_kwargs):
+            v = provision_kwargs[k]
+            if v:
+                parts.append(f"{k}={v}")
+        identity = ":".join(parts)
         return hashlib.sha256(identity.encode()).hexdigest()[:16]
 
     def _key_dir(self, key):

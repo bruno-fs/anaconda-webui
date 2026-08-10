@@ -120,6 +120,8 @@ class TapReporter:
 
 
 def pytest_configure(config):
+    config.addinivalue_line("markers", "slow: long-running, destructive, or E2E tests")
+
     if config.getoption("--disable-vm-cache", default=False):
         os.environ["TEST_VM_CACHE"] = "0"
     if config.getoption("--show-browser", default=False):
@@ -137,6 +139,20 @@ def pytest_configure(config):
         link = check_file.with_name(check_file.name.replace("-", "_") + ".py")
         if not link.exists():
             link.symlink_to(check_file.name)
+
+
+def pytest_collection_modifyitems(items):
+    for item in items:
+        method = getattr(item, "obj", None)
+        cls = getattr(item, "cls", None)
+        is_slow = (
+            "_e2e" in item.nodeid
+            or "Destructive" in (cls.__name__ if cls else "")
+            or getattr(method, "_testlib__timeout", 0) > 600
+            or getattr(cls, "_testlib__timeout", 0) > 600
+        )
+        if is_slow:
+            item.add_marker(pytest.mark.slow)
 
 
 
@@ -165,24 +181,41 @@ def pytest_sessionstart(session):
     attach(os.path.join(TESTLIB_DIR, "common/link-patterns.json"))
 
 
-def _kill_pending_vms():
+def _destroy_test_domains(prefix=None, undefine=False):
+    """Destroy (and optionally undefine) test VM domains matching a prefix.
+
+    If prefix is None, matches all anaconda-test domains.
+    """
     conn = libvirt.open("qemu:///session")
-    domains = conn.listAllDomains()
-    test_dom_regex = re.compile(r"anaconda-test-.*-w\d+$")
-    for dom in domains:
-        if test_dom_regex.match(dom.name()):
+    try:
+        for dom in conn.listAllDomains():
+            name = dom.name()
+            if prefix:
+                if not name.startswith(prefix):
+                    continue
+            elif not re.match(r"anaconda-test-.*-w\d+", name):
+                continue
             if dom.isActive():
                 dom.destroy()
-            # try:
-            #     dom.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_NVRAM)
-            # except libvirt.libvirtError:
-                # dom.undefine()
-    conn.close()
+            if undefine:
+                if dom.hasManagedSaveImage(0):
+                    dom.managedSaveRemove(0)
+                try:
+                    dom.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
+                except libvirt.libvirtError:
+                    try:
+                        dom.undefine()
+                    except libvirt.libvirtError:
+                        pass
+    except Exception:
+        pass
+    finally:
+        conn.close()
 
 
 def pytest_keyboard_interrupt(excinfo):
     subprocess.run(["pkill", "-f", "chromedriver"], check=False)
-    _kill_pending_vms()
+    _destroy_test_domains()
 
 
 @pytest.hookimpl(hookwrapper=True)
@@ -222,24 +255,7 @@ def _global_machine(tmp_path_factory, worker_id):
     image = os.environ.get("TEST_OS", "fedora-rawhide-boot")
     label = f"anaconda-test-{image}-w{worker_num}"
 
-    # Check for stale domain
-    import libvirt
-
-    conn = libvirt.open("qemu:///session")
-    try:
-        dom = conn.lookupByName(label)
-        if dom.isActive():
-            dom.destroy()
-        # if dom.hasManagedSaveImage(0):
-        #     dom.managedSaveRemove(0)
-        # try:
-        #     dom.undefineFlags(libvirt.VIR_DOMAIN_UNDEFINE_KEEP_NVRAM)
-        # except libvirt.libvirtError:
-        #     dom.undefine()
-    except libvirt.libvirtError:
-        pass
-    finally:
-        conn.close()
+    _destroy_test_domains(prefix=label, undefine=True)
 
     case = VirtInstallMachineCase()
     case._testMethodName = "__pytest_session__"
@@ -250,3 +266,5 @@ def _global_machine(tmp_path_factory, worker_id):
     MachineCase.global_machine = machine
 
     yield machine
+
+    _destroy_test_domains(prefix=label)

@@ -52,13 +52,16 @@ class VirtInstallMachine(VirtMachine):
     def cache(self):
         return VMSnapshotCache()
 
-    def compute_cache_key(self):
+    def compute_cache_key(self, **provision_kwargs):
+        provision_kwargs.pop("memory_mb", None)
+        provision_kwargs.pop("kickstart_file_name", None)
         update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
         return self.cache.compute_cache_key(
                 updates_img=update_img_global_file,
                 firmware="efi" if self.is_efi else "bios",
                 memory_mb=self.memory_mb,
                 image=self.image,
+                **provision_kwargs,
             )
 
 
@@ -193,52 +196,50 @@ class VirtInstallMachine(VirtMachine):
         )
 
         if use_cache:
-            cache_key = self.compute_cache_key()
+            if not os.environ.get("TEST_HTTP_PORT"):
+                raise RuntimeError(
+                    "TEST_HTTP_PORT must be set when using VM snapshot cache "
+                    "(run 'anadev payload start' or set TEST_VM_CACHE=0)")
 
-            if self.cache.has_snapshot(cache_key, self.label):
-                try:
-                    self._start_from_snapshot()
-                    return
-                except Exception as e:
-                    print(f"VM snapshot: restore failed ({e}), falling back to fresh boot",
-                          file=sys.stderr)
-                    self.cache.delete_snapshot(cache_key, self.label)
-                    # Fall through to fresh boot
+            try:
+                self._start_from_snapshot()
+                return
+            except Exception as e:
+                print(f"VM snapshot: restore failed ({e}), falling back to fresh boot",
+                      file=sys.stderr)
+                # Fall through to fresh boot
 
         iso_path = self._get_iso_path()
         self._start_fresh(update_img_global_file, iso_path)
-
-        if use_cache:
-            try:
-                self.cache.save_snapshot(
-                    self.label, cache_key, self.label, iso_path,
-                    self.ssh_address, self.ssh_port, self.web_address, self.web_port,
-                )
-                # VM was suspended by virsh save — restore it to continue the test
-                self.cache.restore_snapshot(cache_key, self.label)
-                self._attach_libvirt_domain()
-                self._domain.resume()
-                self.wait_boot(timeout_sec=30)
-            except Exception as e:
-                import traceback
-                print(f"VM snapshot: save/restore failed for {self.label}:", file=sys.stderr)
-                traceback.print_exc(file=sys.stderr)
-                raise
 
     def _get_iso_path(self):
         if compose := os.environ.get("TEST_COMPOSE"):
             return f"{os.getcwd()}/test/images/{compose}.iso"
         return f"{os.getcwd()}/bots/images/{self.image}"
 
-    def _start_from_snapshot(self):
-        # Reset attributes before computing cache key — a previous test's
-        # apply_provision may have changed payload_type etc.
-        self.kickstart_file_name = None
-        self.pause_at_summary = False
+    def _start_from_snapshot(self, **provision_kwargs):
+        self.kickstart_file_name = provision_kwargs.get("kickstart_file_name")
+        self.pause_at_summary = provision_kwargs.get("pause_at_summary", False)
+        self.payload_type = provision_kwargs.get("payload_type", "liveimg")
         self.ssh_reachable = True
-        self.payload_type = "liveimg"
 
-        cache_key = self.compute_cache_key()
+        if self.kickstart_file_name:
+            base_label = getattr(self, '_base_label', self.label)
+            self._base_label = base_label
+            ks_slug = self.kickstart_file_name.removesuffix(".ks").replace("_", "-")
+            self.label = f"{base_label}-{ks_slug}"
+            self._destroy_current_domain()
+            iso_path = self._get_iso_path()
+            update_img = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
+            self._start_fresh(update_img, iso_path)
+            return
+
+        cache_key = self.compute_cache_key(**provision_kwargs)
+
+        # Update label to include cache key — different provisions get different domains
+        base_label = getattr(self, '_base_label', self.label)
+        self._base_label = base_label
+        self.label = f"{base_label}-{cache_key[:8]}"
 
         if not self.cache.has_snapshot(cache_key, self.label):
             print(f"VM snapshot: no cache for {cache_key}/{self.label}, creating...", file=sys.stderr)
@@ -252,34 +253,28 @@ class VirtInstallMachine(VirtMachine):
             self._fresh_boot_and_cache(cache_key)
             self._restore_and_wait(cache_key)
 
-    def _fresh_boot_and_cache(self, cache_key):
-        """Boot a fresh VM and save a snapshot for future restores.
+    def _destroy_current_domain(self):
+        base = getattr(self, '_base_label', self.label)
+        for dom in self.virt_connection.listAllDomains():
+            if dom.name().startswith(base) and dom.isActive():
+                dom.destroy()
 
-        Serialized with a file lock to prevent contention when multiple workers
-        need fresh boots simultaneously.
-        """
-        import filelock
-        lock_path = os.path.join(self.cache.cache_dir, "vm-boot.lock")
-        with filelock.FileLock(lock_path):
-            iso_path = self._get_iso_path()
-            update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
-            self._start_fresh(update_img_global_file, iso_path)
-            self.cache.save_snapshot(
-                self.label, cache_key, self.label, iso_path,
-                self.ssh_address, self.ssh_port, self.web_address, self.web_port,
-            )
+    def _fresh_boot_and_cache(self, cache_key):
+        """Boot a fresh VM and save a snapshot for future restores."""
+        self._destroy_current_domain()
+        iso_path = self._get_iso_path()
+        update_img_global_file = os.path.join(ROOT_DIR, f"updates-{self.os}.img")
+        self._start_fresh(update_img_global_file, iso_path)
+        self.cache.save_snapshot(
+            self.label, cache_key, self.label, iso_path,
+            self.ssh_address, self.ssh_port, self.web_address, self.web_port,
+        )
 
     def _restore_and_wait(self, cache_key):
         """Destroy any existing domain, restore from snapshot, and wait for SSH."""
         print(f"VM snapshot: restoring from cache ({cache_key}/{self.label})", file=sys.stderr)
 
-        # Stop any running domain — virsh restore works on defined+stopped domains
-        try:
-            dom = self.virt_connection.lookupByName(self.label)
-            if dom.isActive():
-                dom.destroy()
-        except libvirt.libvirtError:
-            pass
+        self._destroy_current_domain()
 
         self.cache.restore_snapshot(
             cache_key, self.label,
@@ -421,8 +416,8 @@ class VirtInstallMachine(VirtMachine):
             if self.kickstart_file_name:
                 inst_ks_url = f"http://10.0.2.2:{self.http_install_port}/test/kickstarts/{self.kickstart_file_name}"
                 inst_ks_arg = f" inst.ks={inst_ks_url}"
-                if self.pause_at_summary:
-                    inst_ks_arg += " inst.pauseatsummary"
+            if self.pause_at_summary:
+                inst_ks_arg += " inst.pauseatsummary"
 
         # edd=off: EDD probing often hangs on virtio/QEMU ("Probing EDD" forever).
         # console=ttyS0: send boot log to file-backed serial when VirtMachine enables console_file.

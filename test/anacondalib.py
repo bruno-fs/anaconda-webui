@@ -114,6 +114,13 @@ class VirtInstallMachineCase(MachineCase):
                 for opts in self.provision.values():
                     self._provision_kwargs.update(opts)
                 self.provision = None
+
+            # Provision BEFORE super().setUp() — testlib calls wait_boot()
+            # which fails if the VM was left in a bad state by a previous test
+            machine = MachineCase.global_machine
+            if machine._cached_vm_needs_restore or self._provision_kwargs:
+                machine._start_from_snapshot(**self._provision_kwargs)
+            machine._cached_vm_needs_restore = True
         else:
             self._force_nondestructive = False
 
@@ -126,17 +133,6 @@ class VirtInstallMachineCase(MachineCase):
             self.addCleanup(self.resetMisc)
             self.addCleanup(self.resetTimezone)
             self.addCleanup(self.resetPayloadDNF)
-
-        # Apply saved provision kwargs to the global machine
-        if USE_VM_CACHE:
-            if self.machine._cached_vm_needs_restore:
-                self.machine._start_from_snapshot()
-            self.machine._cached_vm_needs_restore = True
-            if self._provision_kwargs:
-                self.machine.apply_provision(**self._provision_kwargs)
-                # apply_provision restarts cockpit-ws, invalidating the browser session
-                self.browser.kill()
-                self.browser = self.new_browser()
 
         m = self.machine
         b = self.browser
